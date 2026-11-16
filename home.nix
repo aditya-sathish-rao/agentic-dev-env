@@ -78,6 +78,18 @@ in
   home.file.".claude/AGENTS.md".source =
     config.lib.file.mkOutOfStoreSymlink "${dotfiles}/home/AGENTS.md";
 
+  # Apple stores the SSH key passphrase once and hands it back here, so git over SSH
+  # works without retyping it (`av scan`: openssh wants the key encrypted at rest).
+  programs.ssh = {
+    enable = true;
+    enableDefaultConfig = false;
+    settings."*" = {
+      AddKeysToAgent = "yes";
+      UseKeychain = "yes";
+      IdentityFile = "~/.ssh/id_ed25519";
+    };
+  };
+
   # Apple's CommandLineTools gitconfig installs an ambient osxkeychain helper, so any
   # process running as me can ask `git credential fill` for a GitHub token. An empty
   # helper resets the inherited list; GitHub auth for this machine is SSH.

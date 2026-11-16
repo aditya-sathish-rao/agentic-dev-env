@@ -12,8 +12,8 @@ into place, so edits are in-place: change the file here, no rebuild needed.
   isotope that `gh` hardening installs
 - **Shell**: zsh with autosuggestions + syntax highlighting, starship prompt, git aliases
 - **Configs**: wezterm, neovim, herdr, VS Code (font + terminal font), Claude global
-  instructions and user-level skills (`stow`, `lavish`), a `~/.config/git/config` that
-  resets Apple's ambient credential helper
+  instructions and user-level skills (`stow`, `lavish`), `~/.config/git/config` (resets
+  Apple's ambient credential helper) and `~/.ssh/config` (Keychain-backed key)
 
 ## Setup from scratch
 
@@ -83,9 +83,11 @@ once per Mac, after `bootstrap.sh`:
 5. **Encrypt the SSH key.** `av scan` reports `~/.ssh/id_ed25519` as a HIGH finding while
    it has no passphrase, and only you can type the new one:
    ```sh
-   ssh-keygen -p -f ~/.ssh/id_ed25519     # then: ssh-add --apple-use-keychain ~/.ssh/id_ed25519
+   ssh-keygen -p -f ~/.ssh/id_ed25519
+   ssh-add --apple-use-keychain ~/.ssh/id_ed25519
    ```
-   Push/pull keep working because the passphrase lands in the macOS Keychain.
+   `~/.ssh/config` is managed with `AddKeysToAgent`/`UseKeychain`, so the passphrase is
+   stored in the macOS Keychain once and push/pull keep working without retyping it.
 
 6. **Rotate if it ever leaked.** `home/.claude/settings.json` is tracked and holds no
    secrets. If a secret does reach git history (or a file outside the vault), rotate it at

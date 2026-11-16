@@ -7,11 +7,13 @@ into place, so edits are in-place: change the file here, no rebuild needed.
 ## What you get
 
 - **Packages** (nix): ripgrep, fd, fzf, jq, lazygit, neovim, Hack Nerd Font
-- **Apps** (homebrew): wezterm, Visual Studio Code, claude-code, herdr, Automic Vault
-  (`av`, which holds every secret this machine needs)
+- **Apps** (homebrew): wezterm, Visual Studio Code, claude-code, herdr, Node, Automic Vault
+  (`av`, which holds every secret this machine needs), and the `automic-vault/isotopes/gh-cli`
+  isotope that `gh` hardening installs
 - **Shell**: zsh with autosuggestions + syntax highlighting, starship prompt, git aliases
 - **Configs**: wezterm, neovim, herdr, VS Code (font + terminal font), Claude global
-  instructions and user-level skills (`stow`, `lavish`)
+  instructions and user-level skills (`stow`, `lavish`), a `~/.config/git/config` that
+  resets Apple's ambient credential helper
 
 ## Setup from scratch
 
@@ -78,7 +80,14 @@ once per Mac, after `bootstrap.sh`:
    for Approval on every launch. In the app: select `ANTHROPIC_AUTH_TOKEN` →
    **Allow Launcher** → WezTerm. After that `cc` starts with no prompt.
 
-5. **Rotate if it ever leaked.** `home/.claude/settings.json` is tracked and holds no
+5. **Encrypt the SSH key.** `av scan` reports `~/.ssh/id_ed25519` as a HIGH finding while
+   it has no passphrase, and only you can type the new one:
+   ```sh
+   ssh-keygen -p -f ~/.ssh/id_ed25519     # then: ssh-add --apple-use-keychain ~/.ssh/id_ed25519
+   ```
+   Push/pull keep working because the passphrase lands in the macOS Keychain.
+
+6. **Rotate if it ever leaked.** `home/.claude/settings.json` is tracked and holds no
    secrets. If a secret does reach git history (or a file outside the vault), rotate it at
    the provider and `av save` the new value; rewriting history is not a fix.
 
@@ -97,29 +106,30 @@ is what the `cc` alias does:
 cc   # av inject +ANTHROPIC_AUTH_TOKEN -- claude --dangerously-skip-permissions
 ```
 
-Findings from `av scan` on 2026-11-16, and what each one should become:
+Findings from `av scan` on 2026-11-16 and what each one became:
 
-| Finding | Severity | Decision |
+| Finding | Severity | Status |
 | --- | --- | --- |
-| `gh-cli-keychain-access`: gh token readable by `security` | HIGH | Replace the `gh` formula with the `automic-vault/isotopes/gh-cli` isotope (declare it in `configuration.nix` first), then `av harden gh` |
-| `git-credential-fill`: ambient helper for github.com | HIGH | Move GitHub remotes to SSH, drop the helper from the CommandLineTools `gitconfig` |
-| `openssh`: `~/.ssh/id_ed25519` has no passphrase | HIGH | `ssh-keygen -p -f ~/.ssh/id_ed25519`, keep the passphrase in the macOS Keychain |
-| `emudhra`: CA bundled in `/usr/local/bin/node` | HIGH | Update the Node runtime, or `av harden emudhra` if it must stay |
-| OpenRouter key in `~/.claude/settings.json` | not detected | Moved to Automic Vault as `ANTHROPIC_AUTH_TOKEN` (steps above) |
+| `gh-cli-keychain-access`: gh token readable by `security` | HIGH | Fixed: the tap isotope is declared in `configuration.nix` and `av harden gh` migrated the tokens, deleted both legacy Keychain items, and now gates `gh`. `av doctor gh` reports healthy |
+| `git-credential-fill`: ambient helper for github.com | HIGH | Fixed: `~/.config/git/config` resets Apple's inherited `osxkeychain` helper, the cached `github.com` Internet password is deleted, and remotes are SSH |
+| `emudhra`: CA bundled in `/usr/local/bin/node` | HIGH | Fixed: the stale standalone Node 22 was removed and `node` (26) comes from Homebrew |
+| `openssh`: `~/.ssh/id_ed25519` has no passphrase | HIGH | Manual: see step 5 above |
+| `sudo` without Touch ID | medium | Fixed: `security.pam.services.sudo_local.touchIdAuth` writes `/etc/pam.d/sudo_local` |
+| OpenRouter key in `~/.claude/settings.json` | not detected | Fixed: Automic Vault, injected by `cc` (steps above) |
+
+The remaining findings are medium and environmental: user-writable directories ahead of
+system ones in `PATH` (`/opt/homebrew/bin`, `~/.nix-profile/bin`, `~/crystallize`,
+`node_modules/.bin`) and a Homebrew prefix the user can write to. Both are inherent to
+nix-homebrew and to `brew`/nix being on `PATH`, so they are accepted; `av inject` keeps
+secrets out of that environment, which is the part that matters here.
+
+`av doctor` still lists an `aws` pair: `/usr/local/bin/aws` is the AWS CLI v2 symlink, not
+an Automic Vault launcher. Either `av harden aws` (it installs a verified release under
+`/opt/av/aws`) or leave it.
 
 npm/pnpm token detectors are present in Automic Vault but report nothing today; if a
 registry token is ever needed, `av save` it and inject it the same way rather than writing
 `~/.npmrc`.
-
-The remaining findings are medium and environmental: user-writable directories ahead of
-system ones in `PATH` (`/opt/homebrew/bin`, `~/.nix-profile/bin`, `~/crystallize`,
-`node_modules/.bin`), a Homebrew prefix the user can write to, and `sudo` without Touch ID
-(`/etc/pam.d/sudo_local`). Accepted as-is; `av inject` keeps secrets out of that
-environment, which is the part that matters here.
-
-`av doctor` complains about `/usr/local/bin/{aws,npm,pnpm}` being symlinks left by an
-earlier hardening attempt. Each is pre-existing: run `av harden <tool>` for one you use, or
-remove the symlink.
 
 ## Layout
 

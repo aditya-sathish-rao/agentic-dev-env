@@ -78,6 +78,14 @@ in
   home.file.".claude/AGENTS.md".source =
     config.lib.file.mkOutOfStoreSymlink "${dotfiles}/home/AGENTS.md";
 
+  # Apple's CommandLineTools gitconfig installs an ambient osxkeychain helper, so any
+  # process running as me can ask `git credential fill` for a GitHub token. An empty
+  # helper resets the inherited list; GitHub auth for this machine is SSH.
+  home.file.".config/git/config".text = ''
+    [credential]
+    	helper =
+  '';
+
   # Universal (user-level) skills. lavish is shared with other agents via ~/.agents.
   home.file.".claude/skills/stow".source =
     config.lib.file.mkOutOfStoreSymlink "${dotfiles}/home/.claude/skills/stow";

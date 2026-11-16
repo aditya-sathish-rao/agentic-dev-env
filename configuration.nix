@@ -24,6 +24,10 @@ in
     home = "/Users/m2-pro";
   };
   system.stateVersion = 6;
+
+  # `av scan` flags sudo without Touch ID. nix-darwin writes /etc/pam.d/sudo_local.
+  security.pam.services.sudo_local.touchIdAuth = true;
+
   system.defaults = {
    NSGlobalDomain = {
       AppleInterfaceStyle = "Dark";
@@ -60,7 +64,9 @@ in
    ];
    brews = [
     "herdr"
-    "gh"
+    "node" # replaces the stale standalone Node 22 in /usr/local that `av scan` flags
+    # `av harden gh` needs the signed isotope, and it conflicts with upstream gh
+    "automic-vault/isotopes/gh-cli"
    ];
    casks = [
     "wezterm"

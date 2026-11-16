@@ -1,5 +1,21 @@
 {
   "nodes": {
+    "automic-vault-tap": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1794603720,
+        "narHash": "sha256-xFUKBFQ/L9U2xGDOMaASJkLgVXahiZ6wD/oL7XmaaB4=",
+        "owner": "automic-vault",
+        "repo": "homebrew-isotopes",
+        "rev": "cf7175a57dbb328fb6f4b0264b65814d558d1e3c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "automic-vault",
+        "repo": "homebrew-isotopes",
+        "type": "github"
+      }
+    },
     "brew-src": {
       "flake": false,
       "locked": {
@@ -95,6 +111,7 @@
     },
     "root": {
       "inputs": {
+        "automic-vault-tap": "automic-vault-tap",
         "home-manager": "home-manager",
         "nix-darwin": "nix-darwin",
         "nix-homebrew": "nix-homebrew",

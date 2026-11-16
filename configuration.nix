@@ -1,4 +1,12 @@
-{ pkgs, ... }:
+{ pkgs, automic-vault-tap, ... }:
+
+let
+  # nix-homebrew.taps takes derivations; the flake input is a plain source tree.
+  automic-vault-tap-src = pkgs.runCommandLocal "homebrew-isotopes" { } ''
+    mkdir -p $out
+    cp -R ${automic-vault-tap}/. $out
+  '';
+in
 
 {
   # Determinate already manages the Nix daemon, so nix-darwin shouldn't.
@@ -33,6 +41,13 @@
    enable = true;
    user = "m2-pro";
    autoMigrate = true;
+   # Homebrew lives in the nix store, but taps stay mutable: `cleanup = "zap"`
+   # un-taps whatever is missing from homebrew.taps, which a store symlink
+   # (mutableTaps = false) cannot do.
+   mutableTaps = true;
+   taps = {
+    "automic-vault/isotopes" = automic-vault-tap-src;
+   };
   };
   homebrew = {
    enable = true;
@@ -40,13 +55,23 @@
    onActivation.autoUpdate = true;
    onActivation.extraFlags = [ "--force" ];
 
+   taps = [
+    "automic-vault/isotopes"
+   ];
    brews = [
     "herdr"
+    "gh"
    ];
    casks = [
     "wezterm"
     "visual-studio-code"
     "claude-code" # the `cc` alias needs it, and cleanup = "zap" would drop it otherwise
+    # `av`: secrets custody, and the `cc` alias injects through it. Homebrew only
+    # loads a third-party cask that is trusted, so trust this cask, not the tap.
+    {
+     name = "automic-vault/isotopes/automic-vault";
+     trusted = true;
+    }
    ];
   };
 }

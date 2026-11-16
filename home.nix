@@ -34,7 +34,9 @@ in
       push = "git push";
       pull = "git pull";
       m = "git switch main";
-      cc = "claude --dangerously-skip-permissions";
+      # Automic Vault has no claude hardener, so the token is injected at launch
+      # from Secret Custody instead of living in settings.json.
+      cc = "av inject +ANTHROPIC_AUTH_TOKEN -- claude --dangerously-skip-permissions";
       co = "codex --full-auto";
     };
   };

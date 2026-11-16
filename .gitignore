@@ -1,5 +1,4 @@
-# Machine-local files (never commit secrets or build output)
-home/.claude/settings.json
+# Machine-local files (build output)
 result
 .darwin-system
 .DS_Store

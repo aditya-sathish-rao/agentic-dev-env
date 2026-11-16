@@ -21,14 +21,10 @@ if [ ! -x "$NIX" ]; then
     | sh -s -- install --determinate
 fi
 
-REBUILD=/run/current-system/sw/bin/darwin-rebuild
-if [ ! -x "$REBUILD" ]; then
-  # First switch: darwin-rebuild isn't installed yet, so build the pinned
-  # system closure from flake.lock and run the copy inside it.
-  "$NIX" build "$HOME/.dotfiles#darwinConfigurations.$HOST.system" \
-    --out-link "$HOME/.dotfiles-system"
-  REBUILD="$HOME/.dotfiles-system/sw/bin/darwin-rebuild"
-  PATH="/nix/var/nix/profiles/default/bin:$PATH"
-fi
-
-exec sudo -H env PATH="$PATH" "$REBUILD" switch --flake "$HOME/.dotfiles#$HOST"
+# Build as the user who owns the clone, then escalate only for activation. Root
+# cannot evaluate a git flake owned by another user (libgit2: "repository path is
+# not owned by current user"), which is exactly what a fresh clone is.
+SYSTEM="$HOME/.dotfiles-system"
+"$NIX" build "$DIR#darwinConfigurations.$HOST.system" --out-link "$SYSTEM"
+sudo -H "${NIX%/*}/nix-env" --profile /nix/var/nix/profiles/system --set "$SYSTEM"
+exec sudo -H "$SYSTEM/activate"

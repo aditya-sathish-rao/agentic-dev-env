@@ -8,10 +8,20 @@ The tracked `.githooks/check` module that formats and lints this repo. `--staged
 default and what git runs through `.githooks/pre-commit`; `--all` checks every tracked
 file and also evaluates the flake.
 
+## crewmate
+
+An agent a first mate spawns for one task, in its own herdr tab and git worktree. Here it is
+opencode on DeepSeek V4.1 Flash, chosen by `home/firstmate/crew-dispatch.json`.
+
 ## dotfiles link
 
 The symlink `~/.dotfiles` that points at the clone. Every config path in this repo
 resolves through it, so `home.nix` can name files without knowing where the clone lives.
+
+## first mate
+
+The Claude Code session started by `mate` inside `~/firstmate`. It is the only agent you talk
+to: it turns a request into parallel tasks and hands them to crewmates.
 
 ## hardening
 

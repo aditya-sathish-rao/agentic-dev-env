@@ -131,6 +131,41 @@ They are not automated.
    `~/.ssh/config` is managed with `AddKeysToAgent`/`UseKeychain`, so the passphrase is
    stored in the macOS Keychain once and push/pull keep working without retyping it.
 
+## Crew
+
+Talk to one agent, ship with a crew. `mate` starts the first mate: Claude Code inside a manual
+clone of [firstmate](https://github.com/kunchenguid/firstmate) at `~/firstmate`. It splits a
+request into parallel tasks and spawns one crewmate per task into its own herdr tab and git
+worktree. Crewmates run opencode on DeepSeek V4.1 Flash.
+
+```sh
+git clone https://github.com/kunchenguid/firstmate ~/firstmate   # once, before ./rebuild.sh
+mate
+```
+
+What is declared here, and where:
+
+- `opencode` is a nix package (`home.nix`), so the crewmate harness is pinned by `flake.lock`.
+- `home/.config/opencode/opencode.json` defines two providers that read their keys from the
+  environment: DeepSeek direct (`deepseek/deepseek-flash`, which is V4.1 Flash) and OpenRouter
+  (`openrouter/deepseek/deepseek-v4.1-flash`).
+- `home/firstmate/crew-dispatch.json` is linked to `~/firstmate/config/crew-dispatch.json`.
+  It lists direct first and OpenRouter second. firstmate takes the first profile whose model the
+  opencode catalog lists, so OpenRouter is the fallback when the direct provider is not usable.
+  It is chosen at dispatch, not retried mid-task.
+- `mate` selects the herdr backend for the launch and injects the keys, so crewmates inherit them.
+
+firstmate itself stays a manual clone, because it updates itself (`/updatefirstmate`).
+
+Save the keys once, as in [Manual steps](#manual-steps) step 3:
+
+```sh
+av save DEEPSEEK_API_KEY
+av save OPENROUTER_API_KEY
+```
+
+Then allow the launcher for both, as in step 4.
+
 ## Secrets
 
 Policy: every secret lives in Automic Vault. No secret in this repo, no `env` block in

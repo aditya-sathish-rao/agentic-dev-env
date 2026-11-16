@@ -22,6 +22,12 @@ let
     ".claude/skills/stow" = "home/.claude/skills/stow";
     ".claude/skills/lavish" = "home/.agents/skills/lavish";
     ".agents/skills/lavish" = "home/.agents/skills/lavish";
+    # Crew: opencode runs the crewmates. Only the file is linked, because opencode
+    # writes its own runtime state into ~/.config/opencode.
+    ".config/opencode/opencode.json" = "home/.config/opencode/opencode.json";
+    # firstmate stays a manual clone at ~/firstmate (it updates itself); only its
+    # local, gitignored dispatch config comes from here.
+    "firstmate/config/crew-dispatch.json" = "home/firstmate/crew-dispatch.json";
   };
 
   # rendered, because the paths inside depend on the logged-in user
@@ -44,6 +50,7 @@ in
         jq # json on command line
         lazygit
         neovim
+        opencode # crewmate harness, see home/firstmate/crew-dispatch.json
         # the font everything renders in
         nerd-fonts.hack
       ]
@@ -89,6 +96,10 @@ in
         # Secret Custody, together with the OpenRouter base URL. The tracked
         # settings.json therefore carries no env block at all.
         cc = "av inject +ANTHROPIC_AUTH_TOKEN -- env ANTHROPIC_BASE_URL=https://openrouter.ai/api claude --dangerously-skip-permissions";
+        # The first mate: claude in ~/firstmate, spawning crewmates into herdr. The
+        # DeepSeek keys ride along so the crewmates inherit them (opencode.json reads
+        # them from the environment).
+        mate = "(cd ~/firstmate && av inject +ANTHROPIC_AUTH_TOKEN +DEEPSEEK_API_KEY +OPENROUTER_API_KEY -- env ANTHROPIC_BASE_URL=https://openrouter.ai/api FM_BACKEND=herdr claude --dangerously-skip-permissions)";
       };
     };
 

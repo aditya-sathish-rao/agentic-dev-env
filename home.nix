@@ -1,64 +1,74 @@
-{ config, pkgs, ... }:
+{
+  config,
+  pkgs,
+  identity,
+  ...
+}:
 
 let
-  # bootstrap.sh always links the clone here, so the repo can be cloned anywhere.
+  # rebuild.sh links the clone here, so the repo can be cloned anywhere.
   dotfiles = "${config.home.homeDirectory}/.dotfiles";
+
+  # $HOME-relative link target -> repo-relative source
+  symlinks = {
+    ".config/wezterm" = "home/.config/wezterm";
+    ".config/nvim" = "home/.config/nvim";
+    ".config/herdr" = "home/.config/herdr";
+    ".claude/settings.json" = "home/.claude/settings.json";
+    # Claude reads CLAUDE.md; other agents read AGENTS.md - same file, one copy.
+    ".claude/CLAUDE.md" = "home/AGENTS.md";
+    ".claude/AGENTS.md" = "home/AGENTS.md";
+    # Universal (user-level) skills. lavish is shared with other agents via ~/.agents.
+    ".claude/skills/stow" = "home/.claude/skills/stow";
+    ".claude/skills/lavish" = "home/.agents/skills/lavish";
+    ".agents/skills/lavish" = "home/.agents/skills/lavish";
+  };
+
+  # rendered, because the paths inside depend on the logged-in user
+  rendered = {
+    # macOS keeps VS Code user settings outside ~/.config.
+    "Library/Application Support/Code/User/settings.json" = "home/.config/vscode/settings.json";
+  };
 in
 {
   home = {
-    username = "m2-pro";
-    homeDirectory = "/Users/m2-pro";
+    inherit (identity) username homeDirectory;
     stateVersion = "24.11";
-    packages = with pkgs; [
-      # cli use i constantly
-      ripgrep # fast search
-      fd # fast find
-      fzf # fuzzy finder
-      jq # json on command line
-      lazygit
-      neovim
-      # formatters and linters the pre-commit hook shells out to
-      nixfmt
-      shfmt
-      stylua
-      prettier
-      taplo
-      statix
-      deadnix
-      shellcheck
-      selene
-      # the font everything renders in
-      nerd-fonts.hack
-    ];
+    packages =
+      with pkgs;
+      [
+        # cli use i constantly
+        ripgrep # fast search
+        fd # fast find
+        fzf # fuzzy finder
+        jq # json on command line
+        lazygit
+        neovim
+        # the font everything renders in
+        nerd-fonts.hack
+      ]
+      # formatters and linters the checks shell out to, defined once in tools.nix
+      ++ (import ./tools.nix { inherit pkgs; });
     sessionVariables.EDITOR = "nvim";
-    file = {
-      # Edit in place: the real file stays in my repo, ~/.config just points at it.
-      ".config/wezterm".source = config.lib.file.mkOutOfStoreSymlink "${dotfiles}/home/.config/wezterm";
-      ".config/nvim".source = config.lib.file.mkOutOfStoreSymlink "${dotfiles}/home/.config/nvim";
-      ".config/herdr".source = config.lib.file.mkOutOfStoreSymlink "${dotfiles}/home/.config/herdr";
-      # macOS keeps VS Code user settings outside ~/.config.
-      "Library/Application Support/Code/User/settings.json".source =
-        config.lib.file.mkOutOfStoreSymlink "${dotfiles}/home/.config/vscode/settings.json";
-      ".claude/settings.json".source =
-        config.lib.file.mkOutOfStoreSymlink "${dotfiles}/home/.claude/settings.json";
-      # Claude reads CLAUDE.md; other agents read AGENTS.md - same file, one copy.
-      ".claude/CLAUDE.md".source = config.lib.file.mkOutOfStoreSymlink "${dotfiles}/home/AGENTS.md";
-      ".claude/AGENTS.md".source = config.lib.file.mkOutOfStoreSymlink "${dotfiles}/home/AGENTS.md";
-      # Apple's CommandLineTools gitconfig installs an ambient osxkeychain helper, so any
-      # process running as me can ask `git credential fill` for a GitHub token. An empty
-      # helper resets the inherited list; GitHub auth for this machine is SSH.
-      ".config/git/config".text = ''
-        [credential]
-            helper =
-      '';
-      # Universal (user-level) skills. lavish is shared with other agents via ~/.agents.
-      ".claude/skills/stow".source =
-        config.lib.file.mkOutOfStoreSymlink "${dotfiles}/home/.claude/skills/stow";
-      ".claude/skills/lavish".source =
-        config.lib.file.mkOutOfStoreSymlink "${dotfiles}/home/.agents/skills/lavish";
-      ".agents/skills/lavish".source =
-        config.lib.file.mkOutOfStoreSymlink "${dotfiles}/home/.agents/skills/lavish";
-    };
+    # Edit in place: the real file stays in my repo, ~/.config (or Library) points at it.
+    file =
+      builtins.mapAttrs (_: source: {
+        source = config.lib.file.mkOutOfStoreSymlink "${dotfiles}/${source}";
+      }) symlinks
+      // builtins.mapAttrs (_: template: {
+        text = builtins.replaceStrings [ "@PROFILE_DIRECTORY@" ] [ config.home.profileDirectory ] (
+          builtins.readFile (./. + "/${template}")
+        );
+      }) rendered
+      // {
+        # Apple's CommandLineTools gitconfig installs an ambient osxkeychain helper, so any
+        # process running as me can ask `git credential fill` for a GitHub token. An empty
+        # helper resets the inherited list; GitHub auth for this machine is SSH.
+        ".config/git/config".text = ''
+          [credential]
+              helper =
+        '';
+      };
   };
 
   programs = {
@@ -75,10 +85,10 @@ in
         push = "git push";
         pull = "git pull";
         m = "git switch main";
-        # Automic Vault has no claude hardener, so the token is injected at launch
-        # from Secret Custody instead of living in settings.json.
-        cc = "av inject +ANTHROPIC_AUTH_TOKEN -- claude --dangerously-skip-permissions";
-        co = "codex --full-auto";
+        # Automic Vault has no claude hardener, so the key is injected at launch from
+        # Secret Custody, together with the OpenRouter base URL. The tracked
+        # settings.json therefore carries no env block at all.
+        cc = "av inject +ANTHROPIC_AUTH_TOKEN -- env ANTHROPIC_BASE_URL=https://openrouter.ai/api claude --dangerously-skip-permissions";
       };
     };
 

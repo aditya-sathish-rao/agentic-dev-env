@@ -1,6 +1,5 @@
 # Machine-local files (build output)
 result
-.darwin-system
 .DS_Store
 
 # herdr runtime state (sockets, logs, sessions) - only config.toml is config

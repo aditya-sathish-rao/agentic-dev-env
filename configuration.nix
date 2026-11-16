@@ -1,4 +1,9 @@
-{ pkgs, automic-vault-tap, ... }:
+{
+  pkgs,
+  identity,
+  automic-vault-tap,
+  ...
+}:
 
 let
   # nix-homebrew.taps takes derivations; the flake input is a plain source tree.
@@ -13,22 +18,24 @@ in
 
   nixpkgs = {
     config.allowUnfree = true;
-    hostPlatform = "aarch64-darwin"; # use x86_64-darwin for Intel CPU
+    # The flake is evaluated impurely (--impure), so this matches the machine it
+    # runs on: aarch64-darwin on Apple Silicon, x86_64-darwin on Intel.
+    hostPlatform = builtins.currentSystem;
   };
 
   fonts.packages = with pkgs; [
     nerd-fonts.hack
   ];
 
-  users.users.m2-pro = {
-    home = "/Users/m2-pro";
+  users.users.${identity.username} = {
+    home = identity.homeDirectory;
   };
 
   # `av scan` flags sudo without Touch ID. nix-darwin writes /etc/pam.d/sudo_local.
   security.pam.services.sudo_local.touchIdAuth = true;
 
   system = {
-    primaryUser = "m2-pro";
+    primaryUser = identity.username;
     stateVersion = 6;
     defaults = {
       NSGlobalDomain = {
@@ -47,7 +54,7 @@ in
 
   nix-homebrew = {
     enable = true;
-    user = "m2-pro";
+    user = identity.username;
     autoMigrate = true;
     # Homebrew lives in the nix store, but taps stay mutable: `cleanup = "zap"`
     # un-taps whatever is missing from homebrew.taps, which a store symlink

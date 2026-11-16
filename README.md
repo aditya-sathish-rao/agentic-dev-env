@@ -1,67 +1,92 @@
 # agentic-dev-env
 
-macOS dev environment as code: [nix-darwin](https://github.com/nix-darwin/nix-darwin) + [home-manager](https://github.com/nix-community/home-manager) for everything
-declarative, Homebrew for GUI apps. Config files live in this repo and are symlinked
-into place, so edits are in-place: change the file here, no rebuild needed.
+macOS dev environment as code: [nix-darwin](https://github.com/nix-darwin/nix-darwin) and
+[home-manager](https://github.com/nix-community/home-manager) for everything declarative,
+Homebrew for GUI apps. Config files stay in this repo and are linked into place, so most
+edits need no rebuild.
 
 ## What you get
 
-- **Packages** (nix): ripgrep, fd, fzf, jq, lazygit, neovim, Hack Nerd Font
-- **Apps** (homebrew): wezterm, Visual Studio Code, claude-code, herdr, Node, Automic Vault
-  (`av`, which holds every secret this machine needs), and the `automic-vault/isotopes/gh-cli`
-  isotope that `gh` hardening installs
-- **Shell**: zsh with autosuggestions + syntax highlighting, starship prompt, git aliases
-- **Configs**: wezterm, neovim, herdr, VS Code (font + terminal font), Claude global
-  instructions and user-level skills (`stow`, `lavish`), `~/.config/git/config` (resets
-  Apple's ambient credential helper) and `~/.ssh/config` (Keychain-backed key)
+- **Packages** (nix): ripgrep, fd, fzf, jq, lazygit, neovim, Hack Nerd Font, and the
+  formatters and linters the hook runs: nixfmt, shfmt, stylua, prettier, taplo, statix,
+  deadnix, shellcheck, selene.
+- **Apps** (homebrew): wezterm, Visual Studio Code, claude-code, herdr, Node, Automic
+  Vault (`av`, which holds every secret this machine needs), and the
+  `automic-vault/isotopes/gh-cli` isotope that `av harden gh` installs.
+- **Shell**: zsh with autosuggestions and syntax highlighting, starship prompt, git
+  aliases, and `cc` for Claude Code.
+- **Configs**: wezterm, neovim, herdr, VS Code (font, terminal font, formatters), Claude
+  global instructions and user-level skills (`stow`, `lavish`), `~/.config/git/config`
+  (resets Apple's ambient credential helper) and `~/.ssh/config` (Keychain-backed key).
+
+Config files under `home/` are edited in place in the repo and linked into `$HOME`, so an
+edit needs no rebuild. Two files are generated instead, because their content depends on
+the machine: the VS Code user settings (three formatter paths come from
+`config.home.profileDirectory`, so a change to `home/.config/vscode/settings.json` needs
+`./rebuild.sh`) and `~/.config/git/config` (one empty credential helper, written from
+`home.nix`).
+
+Terms used below are defined in [GLOSSARY.md](GLOSSARY.md).
 
 ## Setup from scratch
 
-Needs a fresh macOS machine (Apple Silicon) and an admin user named `m2-pro` - host and
-user names are hardcoded in `flake.nix` / `configuration.nix`, see [Adapting](#adapting).
+Needs a macOS machine (Apple Silicon or Intel) and an admin user. Nothing in the tree
+hardcodes that user: `identity.nix` reads the identity from the environment when the flake
+is evaluated, and the host platform comes from the machine. See [Adapting](#adapting) if
+the defaults do not fit.
 
 ```sh
 git clone https://github.com/aditya-sathish-rao/agentic-dev-env.git ~/github/dotfiles
 cd ~/github/dotfiles
-./bootstrap.sh
+./rebuild.sh
 ```
 
-`bootstrap.sh` is idempotent and does, in order:
+`rebuild.sh` is the only entry point, and it is idempotent. On a fresh machine and on an
+existing one it does, in order:
 
-1. Links the clone to `~/.dotfiles` (all config paths resolve through it, so the repo can
-   live anywhere).
-2. Installs the Xcode command line tools if missing and stops so you can re-run after.
-3. Installs [Determinate Nix](https://determinate.systems/nix) if `nix` isn't present.
-4. Runs the first `darwin-rebuild switch`, using the pinned `nix-darwin` from `flake.lock`.
-   Expect a `sudo` password prompt. Homebrew itself, then all brews/casks, are installed by
-   this activation.
+1. Checks the Xcode command line tools. If they are missing it starts the installer and
+   stops, so run it again when that finishes.
+2. Links the clone to `~/.dotfiles`, so every config path resolves through one place and
+   the clone can live anywhere. It refuses to nest when `~/.dotfiles` is already a real
+   directory.
+3. Sets `core.hooksPath` to `.githooks`.
+4. Installs [Determinate Nix](https://determinate.systems/nix) if `nix` is missing.
+5. Builds as the user who ran it: `nix build --impure`.
+6. Activates as root: `sudo nix-env --set`, then `sudo $SYSTEM/activate`. Expect one
+   `sudo` prompt. See [ADR-0004](docs/adr/0004-build-as-user-activate-as-root.md).
 
-After it finishes, open a new terminal (zsh is now the login shell config) and you're done.
-`home/.claude/settings.json` is tracked, so a fresh clone plus `./bootstrap.sh` leaves a
-working `~/.claude/settings.json` - no file to create by hand. The one-time Automic Vault
-steps below are what cannot be automated.
+The flake is evaluated impurely, so the darwin configuration belongs to whoever runs the
+script. Homebrew itself, then every brew and cask, is installed by this activation.
 
-### Day to day
+After it finishes, open a new terminal. `home/.claude/settings.json` is tracked, so a fresh
+clone leaves a working file with nothing to create by hand. The Automic Vault steps below
+are the part that cannot be automated.
+
+## Day to day
 
 ```sh
-./rebuild.sh    # apply config changes (same as bootstrap.sh once nix-darwin exists)
+./rebuild.sh    # apply config changes
 ```
+
+Most edits need no rebuild at all, because config files are linked into the repo. Generated
+files are the exception: a VS Code settings change needs `./rebuild.sh`, and
+`~/.config/git/config` is edited in `home.nix`.
 
 ## Manual steps
 
-Everything else is declarative. These are the steps Automic Vault only lets a human do,
-once per Mac, after `bootstrap.sh`:
+These are the steps Automic Vault only lets a human do, once per Mac, after `./rebuild.sh`.
+They are not automated.
 
-1. **Start the app.** Homebrew installs the bundle but nothing launches it, and every
-   `av` command that needs Approval fails with `approval service is not running` until
-   the menu bar app is up:
+1. **Start the app.** Homebrew installs the bundle but nothing launches it, and every `av`
+   command that needs Approval fails with `approval service is not running` until the
+   menu bar app is up:
 
    ```sh
    open -a "Automic Vault"
    ```
 
-   Grant the macOS permission prompts it shows (notifications; Keychain access for the
-   Data Protection Keychain that stores the secrets). Leave it running.
+   Grant the permission prompts it shows (notifications; Keychain access for the Data
+   Protection Keychain that stores the secrets). Leave it running.
 
 2. **Install the `av` CLI.** The cask ships `av` inside the bundle; the copy on `PATH` is
    installed by the app: **Install av CLI** (it authenticates as admin and writes a
@@ -78,14 +103,24 @@ once per Mac, after `bootstrap.sh`:
    av save ANTHROPIC_AUTH_TOKEN   # hidden input, then approve the prompt
    ```
 
-   This is the key that used to sit in `home/.claude/settings.json`. It now lives only in
-   Automic Vault and reaches `claude` through `av inject`.
+   This key now lives only in Automic Vault and reaches `claude` through `av inject`.
 
 4. **Let the terminal inject it.** Until the terminal is granted access, `av inject` asks
    for Approval on every launch. In the app: select `ANTHROPIC_AUTH_TOKEN` →
    **Allow Launcher** → WezTerm. After that `cc` starts with no prompt.
 
-5. **Encrypt the SSH key.** `av scan` reports `~/.ssh/id_ed25519` as a HIGH finding while
+5. **Harden `gh`.** The isotope is declared in `configuration.nix`, but the isotope alone
+   does not migrate or gate anything, so run the hardener:
+
+   ```sh
+   av harden gh
+   av doctor gh   # should report healthy
+   ```
+
+   Then delete the legacy `github.com` Internet password item in Keychain Access, so
+   nothing can read that token directly.
+
+6. **Encrypt the SSH key.** `av scan` reports `~/.ssh/id_ed25519` as a HIGH finding while
    it has no passphrase, and only you can type the new one:
 
    ```sh
@@ -96,131 +131,129 @@ once per Mac, after `bootstrap.sh`:
    `~/.ssh/config` is managed with `AddKeysToAgent`/`UseKeychain`, so the passphrase is
    stored in the macOS Keychain once and push/pull keep working without retyping it.
 
-6. **Rotate if it ever leaked.** `home/.claude/settings.json` is tracked and holds no
-   secrets. If a secret does reach git history (or a file outside the vault), rotate it at
-   the provider and `av save` the new value; rewriting history is not a fix.
-
 ## Secrets
 
-Policy: every secret lives in Automic Vault. Nothing in this repo, no `env` block in
-`~/.claude/settings.json`, no exported token in `.zshrc`. Code that needs a secret gets it
-per launch (`av inject <name> -- command`), so it is never ambient in the environment.
+Policy: every secret lives in Automic Vault. No secret in this repo, no `env` block in
+`~/.claude/settings.json`, no exported secret in `.zshrc`.
 
-Claude Code is **not** a supported `av harden` target (`av hardeners --json`: aws, brew,
-gh, codex, ... but no claude), and `av scan` has no Claude detector, so it will not flag
-`settings.json`. The supported path for it is Secret Custody plus a launch wrapper, which
-is what the `cc` alias does:
+Code that needs a secret gets it per launch, so it is never ambient in the environment:
 
 ```sh
-cc   # av inject +ANTHROPIC_AUTH_TOKEN -- claude --dangerously-skip-permissions
+av inject <name> -- command
 ```
 
-Findings from `av scan` on 2026-11-16 and what each one became:
+Claude Code is started this way, because it has no hardener; the reasoning is in
+[ADR-0002](docs/adr/0002-no-claude-hardener.md). The `cc` alias injects both the key and
+the OpenRouter base URL, so the tracked settings file stays free of an `env` block:
 
-| Finding                                                   | Severity     | Status                                                                                                                                                                                   |
-| --------------------------------------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gh-cli-keychain-access`: gh token readable by `security` | HIGH         | Fixed: the tap isotope is declared in `configuration.nix` and `av harden gh` migrated the tokens, deleted both legacy Keychain items, and now gates `gh`. `av doctor gh` reports healthy |
-| `git-credential-fill`: ambient helper for github.com      | HIGH         | Fixed: `~/.config/git/config` resets Apple's inherited `osxkeychain` helper, the cached `github.com` Internet password is deleted, and remotes are SSH                                   |
-| `emudhra`: CA bundled in `/usr/local/bin/node`            | HIGH         | Fixed: the stale standalone Node 22 was removed and `node` (26) comes from Homebrew                                                                                                      |
-| `openssh`: `~/.ssh/id_ed25519` has no passphrase          | HIGH         | Manual: see step 5 above                                                                                                                                                                 |
-| `sudo` without Touch ID                                   | medium       | Fixed: `security.pam.services.sudo_local.touchIdAuth` writes `/etc/pam.d/sudo_local`                                                                                                     |
-| OpenRouter key in `~/.claude/settings.json`               | not detected | Fixed: Automic Vault, injected by `cc` (steps above)                                                                                                                                     |
+```sh
+cc   # av inject +ANTHROPIC_AUTH_TOKEN -- env ANTHROPIC_BASE_URL=https://openrouter.ai/api claude --dangerously-skip-permissions
+```
 
-The remaining findings are seven medium items, all environmental. Six are `PATH` ordering
-(`/opt/homebrew/bin`, `/opt/homebrew/sbin`, `~/.nix-profile/bin`, each reported once by the
-shell detector and once by the macOS process detector) and one is the `homebrew` detector
-flagging `/opt/homebrew` as writable by the current user.
+If a secret ever reaches git history, a stale file or a log, rotate it at the provider and
+`av save` the new value. Rewriting history is not a fix, because the old value stays
+readable wherever it was copied.
 
-They cannot be cleared without abandoning the declarative setup:
+## Scan findings
 
-- **`PATH` ordering** is what nix-darwin and `brew shellenv` are supposed to produce.
-  `~/.nix-profile/bin` and `/opt/homebrew/bin` are user-writable by design, and the
-  detector is explicit that this is expected for version managers.
-- **`av harden brew` refuses on this machine.** It only supports formulae and CLI-only
-  casks, and `/opt/homebrew/Caskroom` holds application casks (`automic-vault`,
-  `visual-studio-code`, `wezterm`):
+`av scan` on 2026-11-16, and what each finding became:
 
-  ```
-  av harden: incompatible Homebrew Casks
-  ```
+| Finding                                                   | Severity     | Status                                                                                                               |
+| --------------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `gh-cli-keychain-access`: gh token readable by `security` | HIGH         | Fixed: the isotope is declared and `av harden gh` gates the command, see manual step 5                               |
+| `git-credential-fill`: ambient helper for github.com      | HIGH         | Fixed: `~/.config/git/config` resets Apple's `osxkeychain` helper, the cached `github.com` item is gone, remotes SSH |
+| `emudhra`: CA bundled in `/usr/local/bin/node`            | HIGH         | Fixed: the stale standalone Node 22 was removed and `node` comes from Homebrew                                       |
+| `openssh`: `~/.ssh/id_ed25519` has no passphrase          | HIGH         | Manual: see step 6 above                                                                                             |
+| `sudo` without Touch ID                                   | medium       | Fixed: `security.pam.services.sudo_local.touchIdAuth` writes `/etc/pam.d/sudo_local`                                 |
+| OpenRouter key in `~/.claude/settings.json`               | not detected | Fixed: Automic Vault, injected by `cc`                                                                               |
 
-- **Hardening would also break `darwin-rebuild`.** It re-owns `/opt/homebrew` as
-  `automic:vault` and replaces `/usr/local/bin/brew` with a setuid launcher that asks the
-  menu bar app for approval on every invocation. nix-homebrew links managed taps into
-  `/opt/homebrew/Library/Taps`, and nix-darwin applies `homebrew.*` through
-  `brew bundle` during activation, which hardened Homebrew does not support.
+Seven medium items remain. Six are `PATH` ordering (`/opt/homebrew/bin`,
+`/opt/homebrew/sbin`, `~/.nix-profile/bin`, each reported by the shell detector and again
+by the macOS process detector), which is the ordering nix-darwin and `brew shellenv` exist
+to produce. The seventh is the `homebrew` detector flagging `/opt/homebrew` as writable by
+the current user; that one is an accepted risk, explained in
+[ADR-0003](docs/adr/0003-accepted-homebrew-writable-risk.md).
 
-So the `homebrew` item is an accepted risk. The app marks that detector Experimental. It is
-a same-user integrity boundary, not a secret boundary: `av inject` keeps the token out of
-that environment, which is the part that matters here. `av scan` has no way to acknowledge
-or suppress a finding, so the item stays visible in the app.
-
-`av doctor` is clean now. The two things it used to flag were pre-existing state, not
-config: `/usr/local/bin/{npm,pnpm}` went away with the stale Node install, and
-`/usr/local/bin/aws` was the AWS CLI v2 launcher from Oct 2024, which Automic Vault read as
-a stale hardened launcher. That symlink was removed; the payload is still at
-`/usr/local/aws-cli/aws`, so restoring it is either `ln -s` or, the way to keep Automic
-Vault happy, `av harden aws` (it installs a verified release under `/opt/av/aws`).
-
-npm/pnpm token detectors are present in Automic Vault but report nothing today; if a
-registry token is ever needed, `av save` it and inject it the same way rather than writing
-`~/.npmrc`.
+npm and pnpm token detectors are present but report nothing today. If a registry token is
+ever needed, `av save` it and inject it the same way rather than writing `~/.npmrc`.
 
 ## Layout
 
 ```
-flake.nix           inputs, pinned by flake.lock (nixpkgs, nix-darwin, home-manager,
-                    nix-homebrew, and the automic-vault/isotopes Homebrew tap)
+identity.nix        username, home directory and host, read from the environment
+tools.nix           formatters and linters, shared by home.nix and the dev shell
+flake.nix           inputs pinned by flake.lock (nixpkgs, nix-darwin, home-manager,
+                    nix-homebrew, automic-vault/isotopes tap); evaluated impurely
 configuration.nix   system: macOS defaults, fonts, homebrew taps/brews/casks
-home.nix            user: packages, zsh, starship, symlinks from home/ into ~
-home/               the dotfiles themselves (wezterm, nvim, herdr, vscode, claude, AGENTS.md)
-.stylua.toml        Lua formatting style shared by the StyLua extension
-.githooks/          pre-commit formatter/linter runner
+home.nix            user: packages, zsh, starship, link table, rendered VS Code settings
+home/               the dotfiles (wezterm, nvim, herdr, vscode, claude, AGENTS.md)
+docs/adr/           one record per decision that is not obvious from the code
+GLOSSARY.md         shared terms
+rebuild.sh          the only entry point: fresh machine, or re-apply changes
+.githooks/check     formatter and lint module (--staged, --all)
+.githooks/pre-commit  git hook, calls check --staged
+.github/workflows/  CI that runs check --all on macOS
+.stylua.toml        Lua formatting style shared with the StyLua extension
 selene.toml         Lua lint rules (.selene/vim.yml defines Neovim globals)
 .prettierignore     generated and vendored files Prettier should skip
-bootstrap.sh        fresh machine -> fully provisioned
-rebuild.sh          re-apply after config changes
 ```
 
 `home/AGENTS.md` is the single copy of the global agent instructions; it is linked to both
-`~/.claude/CLAUDE.md` and `~/.claude/AGENTS.md`.
+`~/.claude/CLAUDE.md` and `~/.claude/AGENTS.md`. Skills under `home/.agents/skills/lavish`
+(MIT, from [kunchenguid/lavish-axi](https://github.com/kunchenguid/lavish-axi)) and
+`home/.claude/skills/stow` are vendored copies, pointed at by `~/.agents/skills` and
+`~/.claude/skills`. Re-copy their `SKILL.md` here to update.
 
-Skills under `home/.agents/skills/lavish` (MIT, from
-[kunchenguid/lavish-axi](https://github.com/kunchenguid/lavish-axi)) and
-`home/.claude/skills/stow` are vendored copies of installed skills, pointed at by
-`~/.agents/skills` and `~/.claude/skills`. Re-copy their `SKILL.md` here to update.
+## Checks
 
-## Formatting and linting
+`.githooks/check` is the module; git runs it through `.githooks/pre-commit`, which passes
+`--staged`. That is also the default.
 
-`bootstrap.sh` sets `core.hooksPath` to `.githooks`, so every clone uses the tracked
-pre-commit hook. For an existing clone, enable it once with:
+```sh
+.githooks/check --staged   # changed files, what the hook runs
+.githooks/check --all      # every tracked file, plus a flake evaluation
+```
+
+`--staged` formats staged files with nixfmt, shfmt, StyLua, Prettier and Taplo, then
+blocks the commit on statix, deadnix, ShellCheck, Selene or Taplo findings. It re-stages
+only the files the formatters actually changed, so unstaged hunks in a partially staged
+file stay out of the commit.
+
+`--all` covers every tracked file and additionally evaluates the flake, which catches Nix
+errors that formatting and linting cannot (the evaluation is skipped when `nix` is not on
+`PATH`). `.github/workflows/checks.yml` runs the same command on macOS for pushes and pull
+requests, through the dev shell:
+
+```sh
+nix develop --impure --command ./.githooks/check --all
+```
+
+The dev shell takes its tools from the pinned `nixpkgs` input, so CI and this machine run
+the same versions even before `./rebuild.sh` has installed anything for the user.
+
+`rebuild.sh` sets `core.hooksPath`, so a clone it has run needs no setup. For anything
+else:
 
 ```sh
 git config core.hooksPath .githooks
 ```
 
-The hook formats staged files with nixfmt, shfmt, StyLua, Prettier, and Taplo, re-stages
-the fixes so they are included in the commit, and blocks the commit on statix, deadnix,
-ShellCheck, Selene, or Taplo findings. To run the same checks over every tracked file:
-
-```sh
-./.githooks/pre-commit --all
-```
-
-Prettier skips generated lock files and the vendored skills; see `.prettierignore`.
-
 ## Adapting
 
-- Different user/host: update `system.primaryUser`, `users.users.<name>`, `home.username`,
-  `home.homeDirectory` and the `darwinConfigurations."m2-pro"` attribute name.
-- `bootstrap.sh` takes the flake attribute from `DOTFILES_HOST` (default `m2-pro`).
-- `homebrew.onActivation.cleanup = "zap"` removes anything not listed in `brews`/`casks`, so
-  add anything you install before running `rebuild.sh`.
-- The Automic Vault cask is not in homebrew-cask, so its tap is a flake input
-  (`automic-vault-tap`, `flake = false`) and is installed by `nix-homebrew.taps`. Bump it
-  with `nix flake update automic-vault-tap`. `mutableTaps = true` is deliberate: `zap`
-  un-taps whatever is missing from `homebrew.taps`, which an immutable store symlink cannot
-  do. Homebrew also refuses to load the cask unless it is trusted, so the cask entry is
-  fully qualified and marked `trusted`; the tap itself is not trusted.
-- Any new tool that needs a secret should be started through `av inject`, not from an
-  exported variable; see [Secrets](#secrets).
+Most of this is no longer needed, because the identity is dynamic.
+
+- **Another user, home or host.** `DOTFILES_USER`, `DOTFILES_HOME` and `DOTFILES_HOST`
+  override the identity. `DOTFILES_HOST` names the `darwinConfigurations` attribute, not
+  the machine hostname.
+- **Another config.** Add the `$HOME`-relative target and the repo path to the table in
+  `home.nix`, mapped through `config.lib.file.mkOutOfStoreSymlink`, then run
+  `./rebuild.sh`. A file that needs generated content is rendered instead of linked.
+- **Homebrew cleanup.** `homebrew.onActivation.cleanup = "zap"` removes anything not
+  listed in `brews` or `casks`, so add what you install before running `./rebuild.sh`.
+- **The tap.** The Automic Vault cask is not in homebrew-cask, so its tap is a flake input
+  (`automic-vault-tap`, `flake = false`) installed by `nix-homebrew.taps`. Bump it with
+  `nix flake update automic-vault-tap`. Taps stay mutable on purpose, and the cask entry
+  must stay fully qualified and `trusted`; see
+  [ADR-0001](docs/adr/0001-homebrew-taps-stay-mutable.md).
+- **A new tool that needs a secret.** Start it through `av inject`, not from an exported
+  variable; see [Secrets](#secrets).

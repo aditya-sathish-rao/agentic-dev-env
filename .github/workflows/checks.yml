@@ -1,0 +1,16 @@
+name: checks
+
+on: [push, pull_request]
+
+jobs:
+  checks:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v30
+      - name: Run checks
+        # identity.nix reads the environment, so pin it explicitly for the runner user
+        run: |
+          export DOTFILES_USER="${DOTFILES_USER:-$(id -un)}"
+          export DOTFILES_HOME="${DOTFILES_HOME:-$HOME}"
+          nix develop --impure --command ./.githooks/check --all

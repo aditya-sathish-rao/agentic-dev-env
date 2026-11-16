@@ -21,15 +21,15 @@
   "[nix]": {
     "editor.defaultFormatter": "jnoortheen.nix-ide"
   },
-  "nix.formatterPath": "/etc/profiles/per-user/m2-pro/bin/nixfmt",
+  "nix.formatterPath": "@PROFILE_DIRECTORY@/bin/nixfmt",
   "[lua]": {
     "editor.defaultFormatter": "JohnnyMorganz.stylua"
   },
-  "stylua.styluaPath": "/etc/profiles/per-user/m2-pro/bin/stylua",
+  "stylua.styluaPath": "@PROFILE_DIRECTORY@/bin/stylua",
   "[shellscript]": {
     "editor.defaultFormatter": "foxundermoon.shell-format"
   },
-  "shellformat.path": "/etc/profiles/per-user/m2-pro/bin/shfmt",
+  "shellformat.path": "@PROFILE_DIRECTORY@/bin/shfmt",
   "shellformat.flag": "-i 2 -ci",
   "[toml]": {
     "editor.defaultFormatter": "tamasfe.even-better-toml"

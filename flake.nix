@@ -27,20 +27,34 @@
       home-manager,
       nix-homebrew,
       automic-vault-tap,
+      nixpkgs,
       ...
     }:
+    let
+      identity = import ./identity.nix;
+      pkgs = nixpkgs.legacyPackages.${builtins.currentSystem};
+    in
     {
-      darwinConfigurations."m2-pro" = nix-darwin.lib.darwinSystem {
-        specialArgs = { inherit automic-vault-tap; };
+      # Same tools the checks need, so CI does not pick them up from a runner's
+      # registry: nix develop --impure --command ./.githooks/check --all
+      devShells.${builtins.currentSystem}.default = pkgs.mkShell {
+        packages = import ./tools.nix { inherit pkgs; };
+      };
+
+      darwinConfigurations.${identity.host} = nix-darwin.lib.darwinSystem {
+        specialArgs = { inherit identity automic-vault-tap; };
         modules = [
           nix-homebrew.darwinModules.nix-homebrew
           ./configuration.nix
           home-manager.darwinModules.home-manager
           {
             home-manager = {
+              # darwin specialArgs stop at the darwin modules, so identity has to be
+              # handed to the home-manager modules again.
+              extraSpecialArgs = { inherit identity; };
               useGlobalPkgs = true;
               useUserPackages = true;
-              users.m2-pro = import ./home.nix;
+              users.${identity.username} = import ./home.nix;
             };
           }
         ];

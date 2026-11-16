@@ -33,5 +33,6 @@
   "shellformat.flag": "-i 2 -ci",
   "[toml]": {
     "editor.defaultFormatter": "tamasfe.even-better-toml"
-  }
+  },
+  "git.confirmSync": false
 }

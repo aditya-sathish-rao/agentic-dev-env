@@ -119,11 +119,33 @@ Findings from `av scan` on 2026-11-16 and what each one became:
 | `sudo` without Touch ID | medium | Fixed: `security.pam.services.sudo_local.touchIdAuth` writes `/etc/pam.d/sudo_local` |
 | OpenRouter key in `~/.claude/settings.json` | not detected | Fixed: Automic Vault, injected by `cc` (steps above) |
 
-The remaining findings are medium and environmental: user-writable directories ahead of
-system ones in `PATH` (`/opt/homebrew/bin`, `~/.nix-profile/bin`, `~/crystallize`,
-`node_modules/.bin`) and a Homebrew prefix the user can write to. Both are inherent to
-nix-homebrew and to `brew`/nix being on `PATH`, so they are accepted; `av inject` keeps
-secrets out of that environment, which is the part that matters here.
+The remaining findings are seven medium items, all environmental. Six are `PATH` ordering
+(`/opt/homebrew/bin`, `/opt/homebrew/sbin`, `~/.nix-profile/bin`, each reported once by the
+shell detector and once by the macOS process detector) and one is the `homebrew` detector
+flagging `/opt/homebrew` as writable by the current user.
+
+They cannot be cleared without abandoning the declarative setup:
+
+- **`PATH` ordering** is what nix-darwin and `brew shellenv` are supposed to produce.
+  `~/.nix-profile/bin` and `/opt/homebrew/bin` are user-writable by design, and the
+  detector is explicit that this is expected for version managers.
+- **`av harden brew` refuses on this machine.** It only supports formulae and CLI-only
+  casks, and `/opt/homebrew/Caskroom` holds application casks (`automic-vault`,
+  `visual-studio-code`, `wezterm`):
+
+  ```
+  av harden: incompatible Homebrew Casks
+  ```
+- **Hardening would also break `darwin-rebuild`.** It re-owns `/opt/homebrew` as
+  `automic:vault` and replaces `/usr/local/bin/brew` with a setuid launcher that asks the
+  menu bar app for approval on every invocation. nix-homebrew links managed taps into
+  `/opt/homebrew/Library/Taps`, and nix-darwin applies `homebrew.*` through
+  `brew bundle` during activation, which hardened Homebrew does not support.
+
+So the `homebrew` item is an accepted risk. The app marks that detector Experimental. It is
+a same-user integrity boundary, not a secret boundary: `av inject` keeps the token out of
+that environment, which is the part that matters here. `av scan` has no way to acknowledge
+or suppress a finding, so the item stays visible in the app.
 
 `av doctor` is clean now. The two things it used to flag were pre-existing state, not
 config: `/usr/local/bin/{npm,pnpm}` went away with the stale Node install, and

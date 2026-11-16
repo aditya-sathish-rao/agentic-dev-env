@@ -125,9 +125,12 @@ system ones in `PATH` (`/opt/homebrew/bin`, `~/.nix-profile/bin`, `~/crystallize
 nix-homebrew and to `brew`/nix being on `PATH`, so they are accepted; `av inject` keeps
 secrets out of that environment, which is the part that matters here.
 
-`av doctor` still lists an `aws` pair: `/usr/local/bin/aws` is the AWS CLI v2 symlink, not
-an Automic Vault launcher. Either `av harden aws` (it installs a verified release under
-`/opt/av/aws`) or leave it.
+`av doctor` is clean now. The two things it used to flag were pre-existing state, not
+config: `/usr/local/bin/{npm,pnpm}` went away with the stale Node install, and
+`/usr/local/bin/aws` was the AWS CLI v2 launcher from Oct 2024, which Automic Vault read as
+a stale hardened launcher. That symlink was removed; the payload is still at
+`/usr/local/aws-cli/aws`, so restoring it is either `ln -s` or, the way to keep Automic
+Vault happy, `av harden aws` (it installs a verified release under `/opt/av/aws`).
 
 npm/pnpm token detectors are present in Automic Vault but report nothing today; if a
 registry token is ever needed, `av save` it and inject it the same way rather than writing

@@ -39,8 +39,14 @@
    onActivation.cleanup = "zap"; #remove anything not listed here
    onActivation.autoUpdate = true;
    onActivation.extraFlags = [ "--force" ];
+
+   brews = [
+    "herdr"
+   ];
    casks = [
     "wezterm"
+    "visual-studio-code"
+    "claude-code" # the `cc` alias needs it, and cleanup = "zap" would drop it otherwise
    ];
   };
 }

@@ -1,7 +1,7 @@
 { config, pkgs, ... }:
 
 let
-  dotfiles = "${config.home.homeDirectory}/.dotfiles";
+  dotfiles = "${config.home.homeDirectory}/github/dotfiles";
 in
 
 {
@@ -19,6 +19,25 @@ in
    # the font everything renders in
    nerd-fonts.hack
   ];
+  
+   programs.zsh = {
+    enable = true;
+    autosuggestion.enable = true;      # ghost text from history
+    syntaxHighlighting.enable = true;  # commands turn green when valid
+    initContent = ''
+      bindkey '^f' autosuggest-accept
+    '';
+    shellAliases = {
+      ".." = "cd ..";
+      add = "git add .";
+      push = "git push";
+      pull = "git pull";
+      m = "git switch main";
+      cc = "claude --dangerously-skip-permissions";
+      co = "codex --full-auto";
+    };
+  };
+
   fonts.fontconfig.enable = true;
   home.sessionVariables.EDITOR = "nvim";
   # Edit in place: the real file stays in my repo, ~/.config just points at it.

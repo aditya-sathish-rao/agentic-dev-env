@@ -1,0 +1,9 @@
+# Machine-local files (never commit secrets or build output)
+home/.claude/settings.json
+result
+.darwin-system
+.DS_Store
+
+# herdr runtime state (sockets, logs, sessions) - only config.toml is config
+home/.config/herdr/*
+!home/.config/herdr/config.toml

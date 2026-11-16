@@ -1,6 +1,37 @@
 {
-    "workbench.colorTheme": "1. DARKㅤㅤ(Lynx Theme)",
-    "editor.fontFamily": "Hack Nerd Font",
-    "editor.fontLigatures": true,
-    "terminal.integrated.fontFamily": "Hack Nerd Font Mono"
+  "workbench.colorTheme": "1. DARKㅤㅤ(Lynx Theme)",
+  "editor.fontFamily": "Hack Nerd Font",
+  "editor.fontLigatures": true,
+  "terminal.integrated.fontFamily": "Hack Nerd Font Mono",
+  "workbench.iconTheme": "lynx-pro-light",
+  "window.zoomLevel": 2,
+  "editor.fontSize": 10,
+  "terminal.integrated.fontSize": 10,
+  "chat.fontSize": 12,
+  "chat.editor.fontSize": 12,
+  "workbench.productIconTheme": "fluent-icons",
+
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+  "prettier.tabWidth": 2,
+  "prettier.proseWrap": "preserve",
+
+  "[nix]": {
+    "editor.defaultFormatter": "jnoortheen.nix-ide"
+  },
+  "nix.formatterPath": "/etc/profiles/per-user/m2-pro/bin/nixfmt",
+  "[lua]": {
+    "editor.defaultFormatter": "JohnnyMorganz.stylua"
+  },
+  "stylua.styluaPath": "/etc/profiles/per-user/m2-pro/bin/stylua",
+  "[shellscript]": {
+    "editor.defaultFormatter": "foxundermoon.shell-format"
+  },
+  "shellformat.path": "/etc/profiles/per-user/m2-pro/bin/shfmt",
+  "shellformat.flag": "-i 2 -ci",
+  "[toml]": {
+    "editor.defaultFormatter": "tamasfe.even-better-toml"
+  }
 }

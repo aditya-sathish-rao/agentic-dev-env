@@ -6,6 +6,8 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 HOST="${DOTFILES_HOST:-m2-pro}"
 # home.nix reads its files through this link, so the repo can be cloned anywhere.
 ln -sfn "$DIR" "$HOME/.dotfiles"
+# Tracked hooks run formatters and linters before every commit.
+git -C "$DIR" config core.hooksPath .githooks
 
 if ! xcode-select -p >/dev/null 2>&1; then
   echo "Xcode command line tools are missing - starting the installer." >&2
@@ -17,8 +19,8 @@ fi
 NIX=/nix/var/nix/profiles/default/bin/nix
 if [ ! -x "$NIX" ]; then
   echo "Installing Determinate Nix..." >&2
-  curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix \
-    | sh -s -- install --determinate
+  curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix |
+    sh -s -- install --determinate
 fi
 
 # Build as the user who owns the clone, then escalate only for activation. Root

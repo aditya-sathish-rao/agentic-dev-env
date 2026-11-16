@@ -1,0 +1,5 @@
+std = ".selene/vim"
+exclude = ["home/.agents/skills", "home/.claude/skills"]
+
+[lints]
+mixed_table = "allow"

@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+# Format and lint files before commit. Run directly with --all for the whole repo.
+set -euo pipefail
+
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+
+# GUI-launched git (VS Code) may not inherit the login shell PATH.
+user=$(id -un)
+export PATH="/etc/profiles/per-user/$user/bin:$HOME/.nix-profile/bin:$PATH"
+
+mode=staged
+for arg in "$@"; do
+  case "$arg" in
+    --all) mode=all ;;
+    -h | --help)
+      sed -n '2,2p' "$0"
+      exit 0
+      ;;
+    *)
+      echo "pre-commit: unknown option: $arg" >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ "$mode" == all ]]; then
+  list_cmd=(git ls-files -z)
+else
+  list_cmd=(git diff --cached --name-only --diff-filter=ACMR -z)
+fi
+
+files=()
+while IFS= read -r -d '' file; do
+  files+=("$file")
+done < <("${list_cmd[@]}")
+
+if [[ ${#files[@]} -eq 0 ]]; then
+  exit 0
+fi
+
+nix_files=()
+sh_files=()
+lua_files=()
+json_files=()
+md_files=()
+toml_files=()
+yaml_files=()
+
+for file in "${files[@]}"; do
+  [[ -f "$file" ]] || continue
+  case "$file" in
+    *.nix) nix_files+=("$file") ;;
+    *.sh | *pre-commit) sh_files+=("$file") ;;
+    *.lua) lua_files+=("$file") ;;
+    *.json | *.jsonc) json_files+=("$file") ;;
+    *.md) md_files+=("$file") ;;
+    *.toml) toml_files+=("$file") ;;
+    *.yml | *.yaml) yaml_files+=("$file") ;;
+  esac
+done
+
+need() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "pre-commit: $1 not found; run ./rebuild.sh first." >&2
+    exit 1
+  fi
+}
+
+before=$(mktemp)
+after=$(mktemp)
+trap 'rm -f "$before" "$after"' EXIT
+
+hash_files() {
+  for file in "${files[@]}"; do
+    [[ -f "$file" ]] || continue
+    printf '%s  %s\n' "$(git hash-object -- "$file")" "$file"
+  done >"$1"
+}
+
+hash_files "$before"
+
+if [[ ${#nix_files[@]} -gt 0 ]]; then
+  need nixfmt
+  nixfmt "${nix_files[@]}"
+fi
+
+if [[ ${#sh_files[@]} -gt 0 ]]; then
+  need shfmt
+  shfmt -w -i 2 -ci "${sh_files[@]}"
+fi
+
+if [[ ${#lua_files[@]} -gt 0 ]]; then
+  need stylua
+  stylua "${lua_files[@]}"
+fi
+
+prettier_args=()
+if [[ ${#json_files[@]} -gt 0 ]]; then prettier_args+=("${json_files[@]}"); fi
+if [[ ${#md_files[@]} -gt 0 ]]; then prettier_args+=("${md_files[@]}"); fi
+if [[ ${#yaml_files[@]} -gt 0 ]]; then prettier_args+=("${yaml_files[@]}"); fi
+if [[ ${#prettier_args[@]} -gt 0 ]]; then
+  need prettier
+  prettier --write --log-level warn "${prettier_args[@]}"
+fi
+
+if [[ ${#toml_files[@]} -gt 0 ]]; then
+  need taplo
+  taplo fmt "${toml_files[@]}"
+fi
+
+hash_files "$after"
+
+formatted=0
+if ! cmp -s "$before" "$after"; then
+  formatted=1
+fi
+
+status=0
+
+if [[ ${#nix_files[@]} -gt 0 ]]; then
+  need statix
+  for file in "${nix_files[@]}"; do
+    statix check "$file" || status=1
+  done
+  need deadnix
+  deadnix --fail "${nix_files[@]}" || status=1
+fi
+
+if [[ ${#sh_files[@]} -gt 0 ]]; then
+  need shellcheck
+  shellcheck "${sh_files[@]}" || status=1
+fi
+
+if [[ ${#lua_files[@]} -gt 0 ]]; then
+  need selene
+  selene --config selene.toml "${lua_files[@]}" || status=1
+fi
+
+if [[ ${#toml_files[@]} -gt 0 ]]; then
+  need taplo
+  taplo lint "${toml_files[@]}" || status=1
+fi
+
+if [[ "$mode" == staged ]]; then
+  git add -- "${files[@]}"
+fi
+
+if [[ $formatted -eq 1 ]]; then
+  if [[ "$mode" == staged ]]; then
+    echo "pre-commit: formatters updated staged files." >&2
+  else
+    echo "pre-commit: formatters changed files; review and stage the fixes." >&2
+    exit 1
+  fi
+fi
+
+if [[ $status -ne 0 ]]; then
+  echo "pre-commit: lint failed; fix the issues above." >&2
+  exit 1
+fi

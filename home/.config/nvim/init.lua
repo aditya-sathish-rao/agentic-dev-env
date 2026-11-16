@@ -1,7 +1,6 @@
 require('vim_config')
 require('keys')
 
-
 -- Bootstrap lazy.nvim
 local lazypath = vim.fn.stdpath('data') .. '/lazy/lazy.nvim'
 -- Probe the plugin itself, not just the directory: a failed clone leaves the dir behind.

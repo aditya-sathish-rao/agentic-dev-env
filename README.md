@@ -55,9 +55,11 @@ once per Mac, after `bootstrap.sh`:
 1. **Start the app.** Homebrew installs the bundle but nothing launches it, and every
    `av` command that needs Approval fails with `approval service is not running` until
    the menu bar app is up:
+
    ```sh
    open -a "Automic Vault"
    ```
+
    Grant the macOS permission prompts it shows (notifications; Keychain access for the
    Data Protection Keychain that stores the secrets). Leave it running.
 
@@ -65,14 +67,17 @@ once per Mac, after `bootstrap.sh`:
    installed by the app: **Install av CLI** (it authenticates as admin and writes a
    root-owned `/usr/local/bin/av`). It refuses to install into a directory the user owns,
    so if `/usr/local/bin` is user-owned, fix that first and click Install again:
+
    ```sh
    sudo chown root:wheel /usr/local/bin
    ```
 
 3. **Store the OpenRouter key.**
+
    ```sh
    av save ANTHROPIC_AUTH_TOKEN   # hidden input, then approve the prompt
    ```
+
    This is the key that used to sit in `home/.claude/settings.json`. It now lives only in
    Automic Vault and reaches `claude` through `av inject`.
 
@@ -82,10 +87,12 @@ once per Mac, after `bootstrap.sh`:
 
 5. **Encrypt the SSH key.** `av scan` reports `~/.ssh/id_ed25519` as a HIGH finding while
    it has no passphrase, and only you can type the new one:
+
    ```sh
    ssh-keygen -p -f ~/.ssh/id_ed25519
    ssh-add --apple-use-keychain ~/.ssh/id_ed25519
    ```
+
    `~/.ssh/config` is managed with `AddKeysToAgent`/`UseKeychain`, so the passphrase is
    stored in the macOS Keychain once and push/pull keep working without retyping it.
 
@@ -110,14 +117,14 @@ cc   # av inject +ANTHROPIC_AUTH_TOKEN -- claude --dangerously-skip-permissions
 
 Findings from `av scan` on 2026-11-16 and what each one became:
 
-| Finding | Severity | Status |
-| --- | --- | --- |
-| `gh-cli-keychain-access`: gh token readable by `security` | HIGH | Fixed: the tap isotope is declared in `configuration.nix` and `av harden gh` migrated the tokens, deleted both legacy Keychain items, and now gates `gh`. `av doctor gh` reports healthy |
-| `git-credential-fill`: ambient helper for github.com | HIGH | Fixed: `~/.config/git/config` resets Apple's inherited `osxkeychain` helper, the cached `github.com` Internet password is deleted, and remotes are SSH |
-| `emudhra`: CA bundled in `/usr/local/bin/node` | HIGH | Fixed: the stale standalone Node 22 was removed and `node` (26) comes from Homebrew |
-| `openssh`: `~/.ssh/id_ed25519` has no passphrase | HIGH | Manual: see step 5 above |
-| `sudo` without Touch ID | medium | Fixed: `security.pam.services.sudo_local.touchIdAuth` writes `/etc/pam.d/sudo_local` |
-| OpenRouter key in `~/.claude/settings.json` | not detected | Fixed: Automic Vault, injected by `cc` (steps above) |
+| Finding                                                   | Severity     | Status                                                                                                                                                                                   |
+| --------------------------------------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gh-cli-keychain-access`: gh token readable by `security` | HIGH         | Fixed: the tap isotope is declared in `configuration.nix` and `av harden gh` migrated the tokens, deleted both legacy Keychain items, and now gates `gh`. `av doctor gh` reports healthy |
+| `git-credential-fill`: ambient helper for github.com      | HIGH         | Fixed: `~/.config/git/config` resets Apple's inherited `osxkeychain` helper, the cached `github.com` Internet password is deleted, and remotes are SSH                                   |
+| `emudhra`: CA bundled in `/usr/local/bin/node`            | HIGH         | Fixed: the stale standalone Node 22 was removed and `node` (26) comes from Homebrew                                                                                                      |
+| `openssh`: `~/.ssh/id_ed25519` has no passphrase          | HIGH         | Manual: see step 5 above                                                                                                                                                                 |
+| `sudo` without Touch ID                                   | medium       | Fixed: `security.pam.services.sudo_local.touchIdAuth` writes `/etc/pam.d/sudo_local`                                                                                                     |
+| OpenRouter key in `~/.claude/settings.json`               | not detected | Fixed: Automic Vault, injected by `cc` (steps above)                                                                                                                                     |
 
 The remaining findings are seven medium items, all environmental. Six are `PATH` ordering
 (`/opt/homebrew/bin`, `/opt/homebrew/sbin`, `~/.nix-profile/bin`, each reported once by the
@@ -136,6 +143,7 @@ They cannot be cleared without abandoning the declarative setup:
   ```
   av harden: incompatible Homebrew Casks
   ```
+
 - **Hardening would also break `darwin-rebuild`.** It re-owns `/opt/homebrew` as
   `automic:vault` and replaces `/usr/local/bin/brew` with a setuid launcher that asks the
   menu bar app for approval on every invocation. nix-homebrew links managed taps into
@@ -166,6 +174,10 @@ flake.nix           inputs, pinned by flake.lock (nixpkgs, nix-darwin, home-mana
 configuration.nix   system: macOS defaults, fonts, homebrew taps/brews/casks
 home.nix            user: packages, zsh, starship, symlinks from home/ into ~
 home/               the dotfiles themselves (wezterm, nvim, herdr, vscode, claude, AGENTS.md)
+.stylua.toml        Lua formatting style shared by the StyLua extension
+.githooks/          pre-commit formatter/linter runner
+selene.toml         Lua lint rules (.selene/vim.yml defines Neovim globals)
+.prettierignore     generated and vendored files Prettier should skip
 bootstrap.sh        fresh machine -> fully provisioned
 rebuild.sh          re-apply after config changes
 ```
@@ -177,6 +189,25 @@ Skills under `home/.agents/skills/lavish` (MIT, from
 [kunchenguid/lavish-axi](https://github.com/kunchenguid/lavish-axi)) and
 `home/.claude/skills/stow` are vendored copies of installed skills, pointed at by
 `~/.agents/skills` and `~/.claude/skills`. Re-copy their `SKILL.md` here to update.
+
+## Formatting and linting
+
+`bootstrap.sh` sets `core.hooksPath` to `.githooks`, so every clone uses the tracked
+pre-commit hook. For an existing clone, enable it once with:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+The hook formats staged files with nixfmt, shfmt, StyLua, Prettier, and Taplo, re-stages
+the fixes so they are included in the commit, and blocks the commit on statix, deadnix,
+ShellCheck, Selene, or Taplo findings. To run the same checks over every tracked file:
+
+```sh
+./.githooks/pre-commit --all
+```
+
+Prettier skips generated lock files and the vendored skills; see `.prettierignore`.
 
 ## Adapting
 

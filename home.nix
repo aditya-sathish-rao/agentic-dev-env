@@ -107,8 +107,8 @@ in
         # settings.json therefore carries no env block at all.
         cc = "av inject +ANTHROPIC_AUTH_TOKEN -- env ANTHROPIC_BASE_URL=https://openrouter.ai/api claude --dangerously-skip-permissions";
         # The first mate: claude in ~/firstmate, spawning crewmates into herdr. The
-        # DeepSeek keys ride along so the crewmates inherit them (opencode.json reads
-        # them from the environment).
+        # DeepSeek keys ride along for the mate itself only; crewmate panes come from
+        # a herdr server that never saw them, so the opencode wrapper injects them.
         mate = "(cd ~/firstmate && av inject +ANTHROPIC_AUTH_TOKEN +DEEPSEEK_API_KEY +OPENROUTER_API_KEY -- env ANTHROPIC_BASE_URL=https://openrouter.ai/api FM_BACKEND=herdr claude --dangerously-skip-permissions)";
       };
     };

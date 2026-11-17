@@ -54,6 +54,10 @@
               extraSpecialArgs = { inherit identity; };
               useGlobalPkgs = true;
               useUserPackages = true;
+              # A file that exists but is not a home-manager link (an old generated
+              # ~/.config/git/config, say) is moved aside instead of aborting the
+              # whole activation before any link is written.
+              backupFileExtension = "hm-bak";
               users.${identity.username} = import ./home.nix;
             };
           }

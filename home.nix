@@ -58,7 +58,8 @@ in
       ++ (import ./tools.nix { inherit pkgs; });
     # firstmate's treehouse and no-mistakes installers put their binaries here
     # (they fall back to a sudo write of /usr/local/bin when this is not on PATH).
-    sessionPath = [ "${config.home.homeDirectory}/.local/bin" ];
+    # PATH itself is exported in programs.zsh initContent: .zshenv is wiped by
+    # path_helper in a login shell.
     sessionVariables.EDITOR = "nvim";
     # Edit in place: the real file stays in my repo, ~/.config (or Library) points at it.
     file =
@@ -86,7 +87,10 @@ in
       enable = true;
       autosuggestion.enable = true; # ghost text from history
       syntaxHighlighting.enable = true; # commands turn green when valid
+      # /etc/zprofile rebuilds PATH with path_helper after .zshenv, so a login shell
+      # would drop a .zshenv export. .zshrc runs later, which keeps this one.
       initContent = ''
+        export PATH="$HOME/.local/bin:$PATH"
         bindkey '^f' autosuggest-accept
       '';
       shellAliases = {

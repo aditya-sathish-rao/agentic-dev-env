@@ -14,7 +14,8 @@ edits need no rebuild.
   Vault (`av`, which holds every secret this machine needs), and the
   `automic-vault/isotopes/gh-cli` isotope that `av harden gh` installs.
 - **Shell**: zsh with autosuggestions and syntax highlighting, starship prompt, git
-  aliases, and `cc` for Claude Code.
+  aliases, `cc` for Claude Code, `mate` for the crew, and `~/.local/bin` on `PATH` (exported
+  from `.zshrc`, because macOS `path_helper` rewrites `PATH` after `.zshenv`).
 - **Configs**: wezterm, neovim, herdr, VS Code (font, terminal font, formatters), Claude
   global instructions and user-level skills (`stow`, `lavish`), `~/.config/git/config`
   (resets Apple's ambient credential helper) and `~/.ssh/config` (Keychain-backed key).
@@ -57,6 +58,11 @@ existing one it does, in order:
 
 The flake is evaluated impurely, so the darwin configuration belongs to whoever runs the
 script. Homebrew itself, then every brew and cask, is installed by this activation.
+
+Home-manager runs last, so a failure before it leaves the system switched but the user links
+untouched. `home-manager.backupFileExtension = "hm-bak"` in `flake.nix` keeps the common case
+from stopping it: a plain file at a managed path (an old generated `~/.config/git/config`, say)
+is moved to `<path>.hm-bak` instead of aborting every link.
 
 After it finishes, open a new terminal. `home/.claude/settings.json` is tracked, so a fresh
 clone leaves a working file with nothing to create by hand. The Automic Vault steps below

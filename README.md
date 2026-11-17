@@ -158,12 +158,13 @@ What is declared here, and where:
   environment: DeepSeek direct (`deepseek/deepseek-flash`, which is V4.1 Flash) and OpenRouter
   (`openrouter/deepseek/deepseek-v4.1-flash`).
 - `home/firstmate/crew-dispatch.json` is linked to `~/firstmate/config/crew-dispatch.json`.
-  It lists OpenRouter first and direct second, because firstmate takes the first profile whose
-  model the opencode catalog lists and never retries mid-task: a profile with a dead credential
-  fails the crewmate instead of falling through. The vault's `DEEPSEEK_API_KEY` is currently
-  rejected by `api.deepseek.com`, so direct stays second until it is rotated; swap the two
-  entries back after `av save DEEPSEEK_API_KEY` and a successful
-  `opencode run -m deepseek/deepseek-flash`.
+  It lists DeepSeek direct first and OpenRouter second. With `shared_quota: true` the
+  `quota-array-dispatch` skill takes the first declared profile whose model the opencode
+  catalog lists — the order is a preference, not a live failover: a crewmate that starts on
+  the first profile is never retried on the next one, so the vault's `DEEPSEEK_API_KEY` has
+  to be valid (`curl -H "Authorization: Bearer $DEEPSEEK_API_KEY"
+https://api.deepseek.com/models` returns 401 while it is not). Put OpenRouter first as the
+  emergency order if direct is ever broken for a while.
 - `mate` selects the herdr backend for the launch and injects the keys, so crewmates inherit them.
 
 ### What a rebuild automates, and what stays manual

@@ -274,6 +274,7 @@ tools.nix           formatters and linters, shared by home.nix and the dev shell
 flake.nix           inputs pinned by flake.lock (nixpkgs, nix-darwin, home-manager,
                     nix-homebrew, automic-vault/isotopes tap); evaluated impurely
 configuration.nix   system: macOS defaults, fonts, homebrew taps/brews/casks
+tailscale.nix       system: the Tailscale daemon
 home.nix            user: packages, zsh, starship, link table, rendered VS Code settings
 home/               the dotfiles (wezterm, nvim, herdr, vscode, claude, AGENTS.md)
 docs/adr/           one record per decision that is not obvious from the code

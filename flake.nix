@@ -46,6 +46,7 @@
         modules = [
           nix-homebrew.darwinModules.nix-homebrew
           ./configuration.nix
+          ./tailscale.nix
           home-manager.darwinModules.home-manager
           {
             home-manager = {

@@ -195,7 +195,7 @@ CLIs below or store secrets. So a new machine needs these steps, in this order:
    rebuild ran first, `rm -rf ~/firstmate` (nothing is in it yet) and clone again.
 2. **`./rebuild.sh`** - opencode, herdr, the links, `~/.local/bin` on `PATH`, `mate`.
 3. **Install the companion CLIs** (below). They are not in nixpkgs and nothing links them.
-4. **Store the keys and allow the launcher** (below). `mate` injects them, crewmates inherit.
+4. **Store the keys and allow the launcher** (below). `mate` injects them into the first mate, and the opencode wrapper into each crewmate.
 5. **Check `gh`.** Dispatching clones projects and opens PRs, so `av doctor gh` must report
    healthy on this machine's hardened `gh-cli` isotope before `mate` can do anything.
 6. **Run `mate`.** The first launch reports anything still missing as `MISSING:` and asks

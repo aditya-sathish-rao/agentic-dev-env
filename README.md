@@ -166,6 +166,12 @@ What is declared here, and where:
 https://api.deepseek.com/models` returns 401 while it is not). Put OpenRouter first as the
   emergency order if direct is ever broken for a while.
 - `mate` selects the herdr backend for the launch and injects the keys, so crewmates inherit them.
+- `home/.local/bin/opencode` shadows the harness with a thin wrapper. firstmate picks one
+  profile per crewmate and neither it nor opencode retries, so a dead `DEEPSEEK_API_KEY`
+  would fail every crewmate instead of falling through. When a launch asks for a `deepseek/`
+  model and `api.deepseek.com` rejects the key, the wrapper rewrites that launch to
+  `openrouter/deepseek/deepseek-v4.1-flash` and says so in the pane. It cannot rescue a
+  session that fails mid-task.
 
 ### What a rebuild automates, and what stays manual
 

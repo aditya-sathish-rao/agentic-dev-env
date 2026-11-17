@@ -28,6 +28,9 @@ let
     # firstmate stays a manual clone at ~/firstmate (it updates itself); only its
     # local, gitignored dispatch config comes from here.
     "firstmate/config/crew-dispatch.json" = "home/firstmate/crew-dispatch.json";
+    # Shadows the harness so a dead direct DeepSeek key falls back to OpenRouter at
+    # launch; the script's header owns why and when. ~/.local/bin is first on PATH.
+    ".local/bin/opencode" = "home/.local/bin/opencode";
   };
 
   # rendered, because the paths inside depend on the logged-in user

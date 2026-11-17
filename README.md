@@ -60,7 +60,9 @@ script. Homebrew itself, then every brew and cask, is installed by this activati
 
 After it finishes, open a new terminal. `home/.claude/settings.json` is tracked, so a fresh
 clone leaves a working file with nothing to create by hand. The Automic Vault steps below
-are the part that cannot be automated.
+are the part that cannot be automated, and the crew adds its own manual steps in
+[Crew](#crew): clone firstmate before the first rebuild, install its companion CLIs, store
+its two keys.
 
 ## Day to day
 
@@ -158,7 +160,27 @@ What is declared here, and where:
   `opencode run -m deepseek/deepseek-flash`.
 - `mate` selects the herdr backend for the launch and injects the keys, so crewmates inherit them.
 
-firstmate itself stays a manual clone, because it updates itself (`/updatefirstmate`).
+### What a rebuild automates, and what stays manual
+
+`./rebuild.sh` automates the harness and the wiring: `opencode` comes from nix (pinned by
+`flake.lock`), herdr from Homebrew, both config files are linked
+(`~/.config/opencode/opencode.json` and `~/firstmate/config/crew-dispatch.json`),
+`~/.local/bin` joins `PATH`, and the generated `.zshrc` gains the `mate` alias.
+
+It never installs, clones or updates firstmate itself. That clone at `~/firstmate` is manual
+because firstmate updates itself (`/updatefirstmate`), and it cannot install the companion
+CLIs below or store secrets. So a new machine needs these steps, in this order:
+
+1. **Clone firstmate before the first rebuild.** Activation creates `~/firstmate/config/` to
+   hold the linked dispatch file, and `git clone` then refuses the non-empty directory. If the
+   rebuild ran first, `rm -rf ~/firstmate` (nothing is in it yet) and clone again.
+2. **`./rebuild.sh`** — opencode, herdr, the links, `~/.local/bin` on `PATH`, `mate`.
+3. **Install the companion CLIs** (below). They are not in nixpkgs and nothing links them.
+4. **Store the keys and allow the launcher** (below). `mate` injects them, crewmates inherit.
+5. **Check `gh`.** Dispatching clones projects and opens PRs, so `av doctor gh` must report
+   healthy on this machine's hardened `gh-cli` isotope before `mate` can do anything.
+6. **Run `mate`.** The first launch reports anything still missing as `MISSING:` and asks
+   before installing or upgrading it.
 
 Its companion CLIs are not in nixpkgs, so they are installed once by their own installers. This
 machine runs gh-axi 0.1.51, chrome-devtools-axi 0.1.46, tasks-axi 0.2.6, quota-axi 0.1.69,

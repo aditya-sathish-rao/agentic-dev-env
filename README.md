@@ -160,16 +160,22 @@ What is declared here, and where:
 - `home/firstmate/crew-dispatch.json` is linked to `~/firstmate/config/crew-dispatch.json`.
   It lists DeepSeek direct first and OpenRouter second. With `shared_quota: true` the
   `quota-array-dispatch` skill takes the first declared profile whose model the opencode
-  catalog lists — the order is a preference, not a live failover: a crewmate that starts on
+  catalog lists - the order is a preference, not a live failover: a crewmate that starts on
   the first profile is never retried on the next one, so the vault's `DEEPSEEK_API_KEY` has
   to be valid (`curl -H "Authorization: Bearer $DEEPSEEK_API_KEY"
 https://api.deepseek.com/models` returns 401 while it is not). Put OpenRouter first as the
   emergency order if direct is ever broken for a while.
-- `mate` selects the herdr backend for the launch and injects the keys, so crewmates inherit them.
+- `mate` selects the herdr backend for the launch and injects the keys into the first mate only.
+  Crewmate panes come from a herdr server that never saw them, so the opencode wrapper below
+  injects them per crewmate.
 - `home/.local/bin/opencode` shadows the harness with a thin wrapper. firstmate picks one
   profile per crewmate and neither it nor opencode retries, so a dead `DEEPSEEK_API_KEY`
   would fail every crewmate instead of falling through. When a launch asks for a `deepseek/`
-  model and `api.deepseek.com` rejects the key, the wrapper rewrites that launch to
+  or `openrouter/` model while either key is unset, the wrapper first re-runs itself under
+  `av inject`, so each crewmate holds the keys only for its own lifetime; if av fails, the launch
+  stops instead of falling back to a stale credential in opencode's `auth.json`. When the
+  launch asks for a `deepseek/` model and `api.deepseek.com` rejects the key, the wrapper
+  rewrites that launch to
   `openrouter/deepseek/deepseek-v4.1-flash` and says so in the pane. It cannot rescue a
   session that fails mid-task.
 
@@ -187,9 +193,9 @@ CLIs below or store secrets. So a new machine needs these steps, in this order:
 1. **Clone firstmate before the first rebuild.** Activation creates `~/firstmate/config/` to
    hold the linked dispatch file, and `git clone` then refuses the non-empty directory. If the
    rebuild ran first, `rm -rf ~/firstmate` (nothing is in it yet) and clone again.
-2. **`./rebuild.sh`** — opencode, herdr, the links, `~/.local/bin` on `PATH`, `mate`.
+2. **`./rebuild.sh`** - opencode, herdr, the links, `~/.local/bin` on `PATH`, `mate`.
 3. **Install the companion CLIs** (below). They are not in nixpkgs and nothing links them.
-4. **Store the keys and allow the launcher** (below). `mate` injects them, crewmates inherit.
+4. **Store the keys and allow the launcher** (below). `mate` injects them into the first mate, and the opencode wrapper into each crewmate.
 5. **Check `gh`.** Dispatching clones projects and opens PRs, so `av doctor gh` must report
    healthy on this machine's hardened `gh-cli` isotope before `mate` can do anything.
 6. **Run `mate`.** The first launch reports anything still missing as `MISSING:` and asks

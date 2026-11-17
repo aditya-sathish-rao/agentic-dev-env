@@ -160,6 +160,22 @@ What is declared here, and where:
 
 firstmate itself stays a manual clone, because it updates itself (`/updatefirstmate`).
 
+Its companion CLIs are not in nixpkgs, so they are installed once by their own installers. This
+machine runs gh-axi 0.1.51, chrome-devtools-axi 0.1.46, tasks-axi 0.2.6, quota-axi 0.1.69,
+lavish-axi 0.1.97, treehouse 3.1.8 and no-mistakes v1.106.1:
+
+```sh
+npm install -g gh-axi chrome-devtools-axi tasks-axi quota-axi lavish-axi
+gh-axi setup hooks && chrome-devtools-axi setup hooks && lavish-axi setup hooks
+curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh | sh
+```
+
+`home.nix` puts `~/.local/bin` on `PATH`, so the treehouse and no-mistakes installers write
+there instead of asking to sudo into `/usr/local/bin`. The three `setup hooks` lines add
+SessionStart hooks to `home/.claude/settings.json`, which is why the tracked file carries them.
+`~/firstmate/bin/fm-bootstrap.sh` lists anything still missing as `MISSING:` on the next `mate`.
+
 Save the keys once, as in [Manual steps](#manual-steps) step 3:
 
 ```sh

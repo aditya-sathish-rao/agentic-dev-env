@@ -56,6 +56,9 @@ in
       ]
       # formatters and linters the checks shell out to, defined once in tools.nix
       ++ (import ./tools.nix { inherit pkgs; });
+    # firstmate's treehouse and no-mistakes installers put their binaries here
+    # (they fall back to a sudo write of /usr/local/bin when this is not on PATH).
+    sessionPath = [ "${config.home.homeDirectory}/.local/bin" ];
     sessionVariables.EDITOR = "nvim";
     # Edit in place: the real file stays in my repo, ~/.config (or Library) points at it.
     file =

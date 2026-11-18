@@ -7,18 +7,20 @@ edits need no rebuild.
 
 ## What you get
 
-- **Packages** (nix): ripgrep, fd, fzf, jq, lazygit, neovim, Hack Nerd Font, and the
-  formatters and linters the hook runs: nixfmt, shfmt, stylua, prettier, taplo, statix,
-  deadnix, shellcheck, selene.
-- **Apps** (homebrew): wezterm, Visual Studio Code, claude-code, herdr, Node, Automic
+- **Packages** (nix): ripgrep, fd, fzf, jq, lazygit, neovim, Hack Nerd Font, the agent
+  harness `pi` (from its own flake input), and the formatters and linters the hook runs:
+  nixfmt, shfmt, stylua, prettier, taplo, statix, deadnix, shellcheck, selene.
+- **Apps** (homebrew): wezterm, Visual Studio Code, herdr, Node, Automic
   Vault (`av`, which holds every secret this machine needs), and the
   `automic-vault/isotopes/gh-cli` isotope that `av harden gh` installs.
 - **Shell**: zsh with autosuggestions and syntax highlighting, starship prompt, git
-  aliases, `cc` for Claude Code, `mate` for the crew, and `~/.local/bin` on `PATH` (exported
+  aliases, `mate` for the crew, and `~/.local/bin` on `PATH` (exported
   from `.zshrc`, because macOS `path_helper` rewrites `PATH` after `.zshenv`).
-- **Configs**: wezterm, neovim, herdr, VS Code (font, terminal font, formatters), Claude
-  global instructions and user-level skills (`stow`, `lavish`), `~/.config/git/config`
-  (resets Apple's ambient credential helper) and `~/.ssh/config` (Keychain-backed key).
+- **Configs**: wezterm, neovim, herdr, VS Code (font, terminal font, formatters), pi's
+  agent directory (`~/.pi/agent/settings.json` owns the default model, `AGENTS.md` the
+  global instructions), user-level skills (`stow`, `lavish`) under `~/.agents/skills`,
+  `~/.config/git/config` (resets Apple's ambient credential helper) and `~/.ssh/config`
+  (Keychain-backed key).
 
 Config files under `home/` are edited in place in the repo and linked into `$HOME`, so an
 edit needs no rebuild. Two files are generated instead, because their content depends on
@@ -64,11 +66,10 @@ untouched. `home-manager.backupFileExtension = "hm-bak"` in `flake.nix` keeps th
 from stopping it: a plain file at a managed path (an old generated `~/.config/git/config`, say)
 is moved to `<path>.hm-bak` instead of aborting every link.
 
-After it finishes, open a new terminal. `home/.claude/settings.json` is tracked, so a fresh
-clone leaves a working file with nothing to create by hand. The Automic Vault steps below
-are the part that cannot be automated, and the crew adds its own manual steps in
+After it finishes, open a new terminal. The Automic Vault steps below are the part that
+cannot be automated, and the crew adds its own manual steps in
 [Crew](#crew): clone firstmate before the first rebuild, install its companion CLIs, store
-its two keys.
+its key.
 
 ## Day to day
 
@@ -79,6 +80,10 @@ its two keys.
 Most edits need no rebuild at all, because config files are linked into the repo. Generated
 files are the exception: a VS Code settings change needs `./rebuild.sh`, and
 `~/.config/git/config` is edited in `home.nix`.
+
+The agent harness moves with the flake, so a pi release is `nix flake update pi` and then
+`./rebuild.sh`. Do not run `pi update pi`: the installed copy lives in the store and cannot
+update itself.
 
 ## Manual steps
 
@@ -105,17 +110,17 @@ They are not automated.
    sudo chown root:wheel /usr/local/bin
    ```
 
-3. **Store the OpenRouter key.**
+3. **Store the DeepSeek key.**
 
    ```sh
-   av save ANTHROPIC_AUTH_TOKEN   # hidden input, then approve the prompt
+   av save DEEPSEEK_API_KEY   # hidden input, then approve the prompt
    ```
 
-   This key now lives only in Automic Vault and reaches `claude` through `av inject`.
+   This key now lives only in Automic Vault and reaches every agent through `av inject`.
 
 4. **Let the terminal inject it.** Until the terminal is granted access, `av inject` asks
-   for Approval on every launch. In the app: select `ANTHROPIC_AUTH_TOKEN` →
-   **Allow Launcher** → WezTerm. After that `cc` starts with no prompt.
+   for Approval on every launch. In the app: select `DEEPSEEK_API_KEY` →
+   **Allow Launcher** → WezTerm. After that `mate` starts with no prompt.
 
 5. **Harden `gh`.** The isotope is declared in `configuration.nix`, but the isotope alone
    does not migrate or gate anything, so run the hardener:
@@ -141,10 +146,10 @@ They are not automated.
 
 ## Crew
 
-Talk to one agent, ship with a crew. `mate` starts the first mate: Claude Code inside a manual
-clone of [firstmate](https://github.com/kunchenguid/firstmate) at `~/firstmate`. It splits a
+Talk to one agent, ship with a crew. `mate` starts the first mate: pi inside a manual clone
+of [firstmate](https://github.com/kunchenguid/firstmate) at `~/firstmate`. It splits a
 request into parallel tasks and spawns one crewmate per task into its own herdr tab and git
-worktree. Crewmates run opencode on DeepSeek V4.1 Flash.
+worktree. Everything runs the same harness, pi, on DeepSeek V4.1 Flash.
 
 ```sh
 git clone https://github.com/kunchenguid/firstmate ~/firstmate   # once, before ./rebuild.sh
@@ -153,38 +158,36 @@ mate
 
 What is declared here, and where:
 
-- `opencode` is a nix package (`home.nix`), so the crewmate harness is pinned by `flake.lock`.
-- `home/.config/opencode/opencode.json` defines two providers that read their keys from the
-  environment: DeepSeek direct (`deepseek/deepseek-flash`, which is V4.1 Flash) and OpenRouter
-  (`openrouter/deepseek/deepseek-v4.1-flash`).
+- `pi` is a flake input ([flake.nix](flake.nix), pinned by `flake.lock`) and the only agent
+  harness here. Its package ships its own Node runtime and model catalog, so no global npm
+  install is involved and the harness version moves only when the lock does.
+- `home/.pi/agent/settings.json` is linked to `~/.pi/agent/settings.json` and owns the model
+  every agent starts on: `defaultProvider: deepseek`, `defaultModel: deepseek-flash` (the
+  catalog entry named DeepSeek V4.1 Flash), `defaultThinkingLevel: high`. To try a different
+  model for the first mate, change those values and start `mate` again. The file is a link
+  into this repo, so it needs no rebuild.
 - `home/firstmate/crew-dispatch.json` is linked to `~/firstmate/config/crew-dispatch.json`.
-  It lists DeepSeek direct first and OpenRouter second. With `shared_quota: true` the
-  `quota-array-dispatch` skill takes the first declared profile whose model the opencode
-  catalog lists - the order is a preference, not a live failover: a crewmate that starts on
-  the first profile is never retried on the next one, so the vault's `DEEPSEEK_API_KEY` has
-  to be valid (`curl -H "Authorization: Bearer $DEEPSEEK_API_KEY"
-https://api.deepseek.com/models` returns 401 while it is not). Put OpenRouter first as the
-  emergency order if direct is ever broken for a while.
-- `mate` selects the herdr backend for the launch and injects the keys into the first mate only.
-  Crewmate panes come from a herdr server that never saw them, so the opencode wrapper below
-  injects them per crewmate.
-- `home/.local/bin/opencode` shadows the harness with a thin wrapper. firstmate picks one
-  profile per crewmate and neither it nor opencode retries, so a dead `DEEPSEEK_API_KEY`
-  would fail every crewmate instead of falling through. When a launch asks for a `deepseek/`
-  or `openrouter/` model while either key is unset, the wrapper first re-runs itself under
-  `av inject`, so each crewmate holds the keys only for its own lifetime; if av fails, the launch
-  stops instead of falling back to a stale credential in opencode's `auth.json`. When the
-  launch asks for a `deepseek/` model and `api.deepseek.com` rejects the key, the wrapper
-  rewrites that launch to
-  `openrouter/deepseek/deepseek-v4.1-flash` and says so in the pane. It cannot rescue a
-  session that fails mid-task.
+  It declares one profile, `{ "harness": "pi", "provider": "deepseek" }`, and deliberately
+  omits the model, so crewmates inherit the same `settings.json` default. With
+  `shared_quota: true` the `quota-array-dispatch` skill resolves the declared profile in
+  order and makes no quota call: there is one provider and one budget.
+- `mate` selects the herdr backend for the launch and injects `DEEPSEEK_API_KEY` into the
+  first mate only. Crewmate panes come from a herdr server that never saw the key, so the
+  wrapper below injects it per crewmate.
+- `home/.local/bin/pi` shadows the harness with a thin wrapper. A crewmate pane starts with
+  no `DEEPSEEK_API_KEY`, so the wrapper first re-runs itself under `av inject` and each
+  worker holds the key only for its own lifetime; if av fails, the launch stops instead of
+  running signed out. Probes that cannot use a key (`--help`, `--version`, `--list-models`,
+  `auth`, `update`) pass straight through, so firstmate's version detection never waits on
+  a vault approval.
 
 ### What a rebuild automates, and what stays manual
 
-`./rebuild.sh` automates the harness and the wiring: `opencode` comes from nix (pinned by
-`flake.lock`), herdr from Homebrew, both config files are linked
-(`~/.config/opencode/opencode.json` and `~/firstmate/config/crew-dispatch.json`),
-`~/.local/bin` joins `PATH`, and the generated `.zshrc` gains the `mate` alias.
+`./rebuild.sh` automates the harness and the wiring: `pi` comes from the flake input (pinned
+by `flake.lock`), herdr from Homebrew, the config files are linked
+(`~/.pi/agent/settings.json`, `~/.pi/agent/AGENTS.md` and
+`~/firstmate/config/crew-dispatch.json`), `~/.local/bin` joins `PATH`, and the generated
+`.zshrc` gains the `mate` alias.
 
 It never installs, clones or updates firstmate itself. That clone at `~/firstmate` is manual
 because firstmate updates itself (`/updatefirstmate`), and it cannot install the companion
@@ -193,9 +196,10 @@ CLIs below or store secrets. So a new machine needs these steps, in this order:
 1. **Clone firstmate before the first rebuild.** Activation creates `~/firstmate/config/` to
    hold the linked dispatch file, and `git clone` then refuses the non-empty directory. If the
    rebuild ran first, `rm -rf ~/firstmate` (nothing is in it yet) and clone again.
-2. **`./rebuild.sh`** - opencode, herdr, the links, `~/.local/bin` on `PATH`, `mate`.
+2. **`./rebuild.sh`** - pi, herdr, the links, `~/.local/bin` on `PATH`, `mate`.
 3. **Install the companion CLIs** (below). They are not in nixpkgs and nothing links them.
-4. **Store the keys and allow the launcher** (below). `mate` injects them into the first mate, and the opencode wrapper into each crewmate.
+4. **Store the key and allow the launcher** (below). `mate` injects it into the first mate,
+   and the pi wrapper into each crewmate.
 5. **Check `gh`.** Dispatching clones projects and opens PRs, so `av doctor gh` must report
    healthy on this machine's hardened `gh-cli` isotope before `mate` can do anything.
 6. **Run `mate`.** The first launch reports anything still missing as `MISSING:` and asks
@@ -213,23 +217,26 @@ curl -fsSL https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/i
 ```
 
 `home.nix` puts `~/.local/bin` on `PATH`, so the treehouse and no-mistakes installers write
-there instead of asking to sudo into `/usr/local/bin`. The three `setup hooks` lines add
-SessionStart hooks to `home/.claude/settings.json`, which is why the tracked file carries them.
-`~/firstmate/bin/fm-bootstrap.sh` lists anything still missing as `MISSING:` on the next `mate`.
+there instead of asking to sudo into `/usr/local/bin`. `~/firstmate/bin/fm-bootstrap.sh`
+lists anything still missing as `MISSING:` on the next `mate`.
 
-Save the keys once, as in [Manual steps](#manual-steps) step 3:
+The three `setup hooks` lines install SessionStart hooks for Claude Code, Codex, OpenCode and
+Copilot CLI. Pi is not one of those targets, so they do not reach the first mate: it gets the
+same guidance from the `lavish` skill under `~/.agents/skills`, which pi discovers, and by
+calling the `-axi` CLIs directly. Keep the lines only if you also run one of those harnesses.
+
+Save the key once, as in [Manual steps](#manual-steps) step 3:
 
 ```sh
 av save DEEPSEEK_API_KEY
-av save OPENROUTER_API_KEY
 ```
 
-Then allow the launcher for both, as in step 4.
+Then allow the launcher for it, as in step 4.
 
 ## Secrets
 
-Policy: every secret lives in Automic Vault. No secret in this repo, no `env` block in
-`~/.claude/settings.json`, no exported secret in `.zshrc`.
+Policy: every secret lives in Automic Vault. No secret in this repo, no key in
+`~/.pi/agent/settings.json`, no exported secret in `.zshrc`.
 
 Code that needs a secret gets it per launch, so it is never ambient in the environment:
 
@@ -237,12 +244,12 @@ Code that needs a secret gets it per launch, so it is never ambient in the envir
 av inject <name> -- command
 ```
 
-Claude Code is started this way, because it has no hardener; the reasoning is in
-[ADR-0002](docs/adr/0002-no-claude-hardener.md). The `cc` alias injects both the key and
-the OpenRouter base URL, so the tracked settings file stays free of an `env` block:
+Pi reads its DeepSeek key from `DEEPSEEK_API_KEY`, and `av inject` supplies it for the life
+of one process. There is no pi hardener either, so the launch is where the key enters; the
+reasoning is in [ADR-0005](docs/adr/0005-pi-only-harness.md):
 
 ```sh
-cc   # av inject +ANTHROPIC_AUTH_TOKEN -- env ANTHROPIC_BASE_URL=https://openrouter.ai/api claude --dangerously-skip-permissions
+mate   # av inject +DEEPSEEK_API_KEY -- env FM_BACKEND=herdr pi
 ```
 
 If a secret ever reaches git history, a stale file or a log, rotate it at the provider and
@@ -260,7 +267,7 @@ readable wherever it was copied.
 | `emudhra`: CA bundled in `/usr/local/bin/node`            | HIGH         | Fixed: the stale standalone Node 22 was removed and `node` comes from Homebrew                                       |
 | `openssh`: `~/.ssh/id_ed25519` has no passphrase          | HIGH         | Manual: see step 6 above                                                                                             |
 | `sudo` without Touch ID                                   | medium       | Fixed: `security.pam.services.sudo_local.touchIdAuth` writes `/etc/pam.d/sudo_local`                                 |
-| OpenRouter key in `~/.claude/settings.json`               | not detected | Fixed: Automic Vault, injected by `cc`                                                                               |
+| OpenRouter key in `~/.claude/settings.json`               | not detected | Fixed: Automic Vault, injected by `mate`; that file is no longer tracked                                             |
 
 Seven medium items remain. Six are `PATH` ordering (`/opt/homebrew/bin`,
 `/opt/homebrew/sbin`, `~/.nix-profile/bin`, each reported by the shell detector and again
@@ -278,11 +285,11 @@ ever needed, `av save` it and inject it the same way rather than writing `~/.npm
 identity.nix        username, home directory and host, read from the environment
 tools.nix           formatters and linters, shared by home.nix and the dev shell
 flake.nix           inputs pinned by flake.lock (nixpkgs, nix-darwin, home-manager,
-                    nix-homebrew, automic-vault/isotopes tap); evaluated impurely
+                    nix-homebrew, automic-vault/isotopes tap, pi); evaluated impurely
 configuration.nix   system: macOS defaults, fonts, homebrew taps/brews/casks
 tailscale.nix       system: the Tailscale daemon
 home.nix            user: packages, zsh, starship, link table, rendered VS Code settings
-home/               the dotfiles (wezterm, nvim, herdr, vscode, claude, AGENTS.md)
+home/               the dotfiles (wezterm, nvim, herdr, vscode, .pi, .agents/skills, AGENTS.md)
 docs/adr/           one record per decision that is not obvious from the code
 GLOSSARY.md         shared terms
 rebuild.sh          the only entry point: fresh machine, or re-apply changes
@@ -294,11 +301,12 @@ selene.toml         Lua lint rules (.selene/vim.yml defines Neovim globals)
 .prettierignore     generated and vendored files Prettier should skip
 ```
 
-`home/AGENTS.md` is the single copy of the global agent instructions; it is linked to both
-`~/.claude/CLAUDE.md` and `~/.claude/AGENTS.md`. Skills under `home/.agents/skills/lavish`
-(MIT, from [kunchenguid/lavish-axi](https://github.com/kunchenguid/lavish-axi)) and
-`home/.claude/skills/stow` are vendored copies, pointed at by `~/.agents/skills` and
-`~/.claude/skills`. Re-copy their `SKILL.md` here to update.
+`home/AGENTS.md` is the single copy of the global agent instructions. Pi reads it as
+`~/.pi/agent/AGENTS.md`; the `~/.claude/CLAUDE.md` and `~/.claude/AGENTS.md` links are kept
+for any agent that still looks there. Skills live under `home/.agents/skills` and are linked
+to `~/.agents/skills`, which pi discovers: `lavish` (MIT, from
+[kunchenguid/lavish-axi](https://github.com/kunchenguid/lavish-axi)) and `stow`. Re-copy
+their `SKILL.md` here to update.
 
 ## Checks
 

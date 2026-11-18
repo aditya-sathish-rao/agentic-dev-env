@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Supply the vault key to a crewmate pane.
+#
+# `mate` injects DEEPSEEK_API_KEY into the first mate only. Crewmate panes are
+# opened by a herdr server that never saw that key, so a launch that needs one
+# re-runs this wrapper under `av inject` and the worker holds the key only for
+# its own lifetime. An av failure stops the launch instead of leaving pi to run
+# signed out; with no av on PATH the wrapper passes through unchanged.
+#
+# Probes that cannot use a model key (`--help`, `--version`, `auth`, `update`,
+# `--list-models`) pass through, so firstmate's help and version detection never
+# waits on a vault approval.
+set -u
+
+real=''
+IFS=: read -ra dirs <<<"$PATH"
+for dir in "${dirs[@]}"; do
+  [[ $dir == "$HOME/.local/bin" ]] && continue
+  if [[ -x $dir/pi ]]; then
+    real=$dir/pi
+    break
+  fi
+done
+if [[ -z $real ]]; then
+  echo "pi: the real harness is not on PATH" >&2
+  exit 127
+fi
+
+for arg in "$@"; do
+  case $arg in
+    --help | --version | --list-models | auth | update) exec "$real" "$@" ;;
+  esac
+done
+
+if [[ -z ${DEEPSEEK_API_KEY:-} ]] && command -v av >/dev/null 2>&1; then
+  exec av inject +DEEPSEEK_API_KEY -- "$0" "$@"
+fi
+
+exec "$real" "$@"

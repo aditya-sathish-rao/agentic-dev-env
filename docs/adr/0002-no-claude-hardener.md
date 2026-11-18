@@ -1,7 +1,10 @@
 # 0002. Claude Code gets no hardener
 
-- Status: Accepted
+- Status: Superseded by [ADR-0005](0005-pi-only-harness.md)
 - Date: 2026-11-16
+
+Claude Code is no longer part of this setup. ADR-0005 keeps the rule this record
+establishes - no hardener means the key enters at launch - and applies it to pi.
 
 ## Context
 
@@ -21,21 +24,20 @@ including launches that have no key.
 
 Do not treat Claude Code as a hardened target, and do not wait for a Claude detector.
 
-Keep the token in Secret Custody and reach the process through `av inject` in the `cc`
+Keep the token in Secret Custody and reach the process through `av inject` in the `mate`
 alias:
 
 ```sh
-cc   # av inject +ANTHROPIC_AUTH_TOKEN -- env ANTHROPIC_BASE_URL=https://openrouter.ai/api claude --dangerously-skip-permissions
+mate   # av inject +ANTHROPIC_AUTH_TOKEN +DEEPSEEK_API_KEY +OPENROUTER_API_KEY -- env ANTHROPIC_BASE_URL=https://openrouter.ai/api FM_BACKEND=herdr claude --dangerously-skip-permissions
 ```
 
-Both the key and the routing URL are supplied by the alias, so the tracked
-`home/.claude/settings.json` carries no `env` block and a bare `claude` cannot reach
-OpenRouter without a key.
+Both the key and the routing URL are supplied by the alias, so no tracked settings file
+carries an `env` block and a bare `claude` cannot reach OpenRouter without a key.
 
 ## Consequences
 
 - No secret is written to a dotfile, and the token is not exported into the shell.
-- Every `cc` launch asks the vault, so the token is injected per process. The terminal is
+- Every `mate` launch asks the vault, so the token is injected per process. The terminal is
   allowed once, in manual step 4, so it does not prompt after that.
 - Nothing gates Claude Code the way a hardened tool is gated. `av scan` will never flag
   this file, so the policy has to be upheld by review rather than by a finding.

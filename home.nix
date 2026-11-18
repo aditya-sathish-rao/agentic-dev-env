@@ -2,6 +2,7 @@
   config,
   pkgs,
   identity,
+  piPackage,
   ...
 }:
 
@@ -14,23 +15,25 @@ let
     ".config/wezterm" = "home/.config/wezterm";
     ".config/nvim" = "home/.config/nvim";
     ".config/herdr" = "home/.config/herdr";
-    ".claude/settings.json" = "home/.claude/settings.json";
     # Claude reads CLAUDE.md; other agents read AGENTS.md - same file, one copy.
     ".claude/CLAUDE.md" = "home/AGENTS.md";
     ".claude/AGENTS.md" = "home/AGENTS.md";
-    # Universal (user-level) skills. lavish is shared with other agents via ~/.agents.
-    ".claude/skills/stow" = "home/.claude/skills/stow";
-    ".claude/skills/lavish" = "home/.agents/skills/lavish";
+    # Universal (user-level) skills, read by any agent via ~/.agents/skills.
+    ".agents/skills/stow" = "home/.agents/skills/stow";
     ".agents/skills/lavish" = "home/.agents/skills/lavish";
-    # Crew: opencode runs the crewmates. Only the file is linked, because opencode
-    # writes its own runtime state into ~/.config/opencode.
-    ".config/opencode/opencode.json" = "home/.config/opencode/opencode.json";
+    # Pi's agent directory. Only the two config files are linked, because pi writes
+    # its own runtime state (auth.json, trust.json, sessions) into ~/.pi/agent.
+    # settings.json owns the default model every agent starts on; AGENTS.md is the
+    # same global instructions file, read here by pi.
+    ".pi/agent/settings.json" = "home/.pi/agent/settings.json";
+    ".pi/agent/AGENTS.md" = "home/AGENTS.md";
     # firstmate stays a manual clone at ~/firstmate (it updates itself); only its
     # local, gitignored dispatch config comes from here.
     "firstmate/config/crew-dispatch.json" = "home/firstmate/crew-dispatch.json";
-    # Shadows the harness so a dead direct DeepSeek key falls back to OpenRouter at
-    # launch; the script's header owns why and when. ~/.local/bin is first on PATH.
-    ".local/bin/opencode" = "home/.local/bin/opencode";
+    # Shadows the harness so a crewmate pane, which starts without the key `mate`
+    # injects, gets DEEPSEEK_API_KEY from the vault for its own lifetime; the
+    # wrapper owns why. ~/.local/bin is first on PATH.
+    ".local/bin/pi" = "home/.local/bin/pi";
   };
 
   # rendered, because the paths inside depend on the logged-in user
@@ -53,12 +56,14 @@ in
         jq # json on command line
         lazygit
         neovim
-        opencode # crewmate harness, see home/firstmate/crew-dispatch.json
         # the font everything renders in
         nerd-fonts.hack
       ]
       # formatters and linters the checks shell out to, defined once in tools.nix
-      ++ (import ./tools.nix { inherit pkgs; });
+      ++ (import ./tools.nix { inherit pkgs; })
+      # The agent harness. It comes from the pi flake input rather than nixpkgs
+      # because the flake pins the release and ships the Node runtime with it.
+      ++ [ piPackage ];
     # firstmate's treehouse and no-mistakes installers put their binaries here
     # (they fall back to a sudo write of /usr/local/bin when this is not on PATH).
     # PATH itself is exported in programs.zsh initContent: .zshenv is wiped by
@@ -102,14 +107,13 @@ in
         push = "git push";
         pull = "git pull";
         m = "git switch main";
-        # Automic Vault has no claude hardener, so the key is injected at launch from
-        # Secret Custody, together with the OpenRouter base URL. The tracked
-        # settings.json therefore carries no env block at all.
-        cc = "av inject +ANTHROPIC_AUTH_TOKEN -- env ANTHROPIC_BASE_URL=https://openrouter.ai/api claude --dangerously-skip-permissions";
-        # The first mate: claude in ~/firstmate, spawning crewmates into herdr. The
-        # DeepSeek keys ride along for the mate itself only; crewmate panes come from
-        # a herdr server that never saw them, so the opencode wrapper injects them.
-        mate = "(cd ~/firstmate && av inject +ANTHROPIC_AUTH_TOKEN +DEEPSEEK_API_KEY +OPENROUTER_API_KEY -- env ANTHROPIC_BASE_URL=https://openrouter.ai/api FM_BACKEND=herdr claude --dangerously-skip-permissions)";
+        # The first mate: pi in ~/firstmate, spawning crewmates into herdr. The model
+        # is not named here on purpose: pi reads it from ~/.pi/agent/settings.json,
+        # so swapping the model is one line in that file and needs no rebuild. The
+        # key rides along for the mate itself only;
+        # crewmate panes come from a herdr server that never saw it, so the pi
+        # wrapper in ~/.local/bin injects it per crewmate.
+        mate = "(cd ~/firstmate && av inject +DEEPSEEK_API_KEY -- env FM_BACKEND=herdr pi)";
       };
     };
 

@@ -36,5 +36,5 @@ Treat the six `PATH` ordering findings as expected output of the setup, not as d
 - `av scan` keeps showing one medium item and six medium `PATH` items on every run.
 - The boundary accepted here is integrity of the Homebrew prefix for a same-user process,
   not custody of a secret. Secrets stay behind `av inject`; see
-  [ADR-0002](0002-no-claude-hardener.md).
+  [ADR-0005](0005-pi-only-harness.md).
 - Anything installed through `brew` runs as the user, as it already did.

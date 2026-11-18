@@ -4,4 +4,3 @@ home/.config/nvim/lazy-lock.json
 
 # Vendored upstream skills; keep them byte-for-byte close to their source.
 home/.agents/skills/
-home/.claude/skills/

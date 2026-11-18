@@ -13,6 +13,11 @@
 
     nix-homebrew.url = "github:zhaofengli/nix-homebrew";
 
+    # The one agent harness every first mate and crewmate runs. Its package brings
+    # its own Node and model catalog, so `pi` and everything it needs come from
+    # here, pinned by flake.lock instead of a global npm install.
+    pi.url = "github:earendil-works/pi/stable";
+
     # Homebrew tap with the Automic Vault cask (it is not in homebrew-cask).
     # Pinned by flake.lock and installed as a declarative tap; see configuration.nix.
     automic-vault-tap = {
@@ -28,11 +33,13 @@
       nix-homebrew,
       automic-vault-tap,
       nixpkgs,
+      pi,
       ...
     }:
     let
       identity = import ./identity.nix;
       pkgs = nixpkgs.legacyPackages.${builtins.currentSystem};
+      piPackage = pi.packages.${builtins.currentSystem}.default;
     in
     {
       # Same tools the checks need, so CI does not pick them up from a runner's
@@ -50,9 +57,9 @@
           home-manager.darwinModules.home-manager
           {
             home-manager = {
-              # darwin specialArgs stop at the darwin modules, so identity has to be
-              # handed to the home-manager modules again.
-              extraSpecialArgs = { inherit identity; };
+              # darwin specialArgs stop at the darwin modules, so identity and the
+              # harness package have to be handed to the home-manager modules again.
+              extraSpecialArgs = { inherit identity piPackage; };
               useGlobalPkgs = true;
               useUserPackages = true;
               # A file that exists but is not a home-manager link (an old generated

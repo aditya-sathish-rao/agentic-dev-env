@@ -85,8 +85,7 @@ in
     casks = [
       "wezterm"
       "visual-studio-code"
-      "claude-code" # the `cc` alias needs it, and cleanup = "zap" would drop it otherwise
-      # `av`: secrets custody, and the `cc` alias injects through it. Homebrew only
+      # `av`: secrets custody, and the `mate` alias injects through it. Homebrew only
       # loads a third-party cask that is trusted, so trust this cask, not the tap.
       {
         name = "automic-vault/isotopes/automic-vault";

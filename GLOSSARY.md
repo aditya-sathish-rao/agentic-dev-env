@@ -11,7 +11,7 @@ file and also evaluates the flake.
 ## crewmate
 
 An agent a first mate spawns for one task, in its own herdr tab and git worktree. Here it is
-opencode on DeepSeek V4.1 Flash, chosen by `home/firstmate/crew-dispatch.json`.
+pi on DeepSeek V4.1 Flash, chosen by `home/firstmate/crew-dispatch.json`.
 
 ## dotfiles link
 
@@ -20,8 +20,13 @@ resolves through it, so `home.nix` can name files without knowing where the clon
 
 ## first mate
 
-The Claude Code session started by `mate` inside `~/firstmate`. It is the only agent you talk
-to: it turns a request into parallel tasks and hands them to crewmates.
+The pi session started by `mate` inside `~/firstmate`. It is the only agent you talk to: it
+turns a request into parallel tasks and hands them to crewmates.
+
+## harness
+
+The agent program that runs a model, such as pi. Here pi is the only one, for the first mate
+and for crewmates alike, so the model can change without the harness changing.
 
 ## hardening
 

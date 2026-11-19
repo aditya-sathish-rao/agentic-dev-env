@@ -24,11 +24,12 @@ edits need no rebuild.
   Apple's ambient credential helper) and `~/.ssh/config` (Keychain-backed key).
 
 Config files under `home/` are edited in place in the repo and linked into `$HOME`, so an
-edit needs no rebuild. Two files are generated instead, because their content depends on
-the machine: the VS Code user settings (three formatter paths come from
-`config.home.profileDirectory`, so a change to `home/.config/vscode/settings.json` needs
-`./rebuild.sh`) and `~/.config/git/config` (one empty credential helper, written from
-`home.nix`).
+edit needs no rebuild. `~/.config/git/config` is generated instead, because its content is
+written from `home.nix`. VS Code's `settings.json` goes the other way: it is seeded once from
+`home/.config/vscode/settings.json` as a real file and then owned by VS Code, because its
+atomic saves cannot write through a link into the read-only store. Delete the file and run
+`./rebuild.sh` to restore the defaults. See
+[ADR-0008](docs/adr/0008-vscode-owns-its-settings.md).
 
 Terms used below are defined in [GLOSSARY.md](GLOSSARY.md).
 
@@ -172,6 +173,15 @@ What is declared here, and where:
   omits the model, so crewmates inherit the same `settings.json` default. With
   `shared_quota: true` the `quota-array-dispatch` skill resolves the declared profile in
   order and makes no quota call: there is one provider and one budget.
+- `home/firstmate/supervision-branch-model` and `-effort` are linked into the same
+  `config/`. They pin the supervision branch, the second conversation that triages fleet
+  wakes beside the captain's chat, to `deepseek/deepseek-flash` at `low` effort while the
+  captain keeps `settings.json`'s `high`. Routine triage is cheap, and anything
+  captain-worthy still reaches main, which keeps the full effort. Fleet polling never
+  reaches a model at all: the bash watcher blocks on herdr's event stream, absorbs benign
+  wakes itself, and wakes the branch only for a real transition or decision. A pin applies
+  when the next `mate` session opens; `/supervision-model` rewrites these files in place, so
+  run `./rebuild.sh` after using it to put the declarative pins back.
 - `mate` selects the herdr backend for the launch and injects `DEEPSEEK_API_KEY` into the
   first mate only. Crewmate panes come from a herdr server that never saw the key, so the
   wrapper below injects it per crewmate.
@@ -186,9 +196,9 @@ What is declared here, and where:
 
 `./rebuild.sh` automates the harness and the wiring: `pi` comes from the flake input (pinned
 by `flake.lock`), herdr from Homebrew, the config files are linked
-(`~/.pi/agent/settings.json`, `~/.pi/agent/AGENTS.md` and
-`~/firstmate/config/crew-dispatch.json`), `~/.local/bin` joins `PATH`, and the generated
-`.zshrc` gains the `mate` alias.
+(`~/.pi/agent/settings.json`, `~/.pi/agent/AGENTS.md`,
+`~/firstmate/config/crew-dispatch.json` and the two supervision pins), `~/.local/bin` joins
+`PATH`, and the generated `.zshrc` gains the `mate` alias.
 
 Homebrew no longer prunes, so the `claude-code` cask from the old harness survives a
 rebuild: `brew uninstall --cask claude-code` once. The `opencode` package needs nothing,
@@ -364,7 +374,8 @@ Most of this is no longer needed, because the identity is dynamic.
   the machine hostname.
 - **Another config.** Add the `$HOME`-relative target and the repo path to the table in
   `home.nix`, mapped through `config.lib.file.mkOutOfStoreSymlink`, then run
-  `./rebuild.sh`. A file that needs generated content is rendered instead of linked.
+  `./rebuild.sh`. A file whose content Nix generates is rendered or seeded instead, depending
+  on whether the application itself writes it.
 - **Homebrew is additive.** `homebrew.onActivation.cleanup = "none"`: `brews` and `casks`
   are installed and upgraded, and everything else on the machine is left alone. The price is
   that deleting an entry here does not uninstall it - run `brew uninstall --cask <name>`

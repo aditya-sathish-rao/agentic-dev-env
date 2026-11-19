@@ -1,5 +1,6 @@
 {
   config,
+  lib,
   pkgs,
   identity,
   piPackage,
@@ -45,8 +46,14 @@ let
     ".pi/agent/settings.json" = "home/.pi/agent/settings.json";
     ".pi/agent/AGENTS.md" = "home/AGENTS.md";
     # firstmate stays a manual clone at ~/firstmate (it updates itself); only its
-    # local, gitignored dispatch config comes from here.
+    # local, gitignored dispatch config and supervision pins come from here.
     "firstmate/config/crew-dispatch.json" = "home/firstmate/crew-dispatch.json";
+    # The supervision branch runs the routine fleet-wake checks, so it is pinned to
+    # the cheap model at low effort while the captain's conversation keeps its own.
+    # /supervision-model rewrites the file in place and breaks these links; run
+    # ./rebuild.sh to restore the declarative pins.
+    "firstmate/config/supervision-branch-model" = "home/firstmate/supervision-branch-model";
+    "firstmate/config/supervision-branch-effort" = "home/firstmate/supervision-branch-effort";
     # Shadows the harness so a crewmate pane, which starts without the key `mate`
     # injects, gets DEEPSEEK_API_KEY from the vault for its own lifetime; the
     # wrapper owns why. ~/.local/bin is first on PATH.
@@ -54,11 +61,16 @@ let
   }
   // skillLinks;
 
-  # rendered, because the paths inside depend on the logged-in user
-  rendered = {
-    # macOS keeps VS Code user settings outside ~/.config.
-    "Library/Application Support/Code/User/settings.json" = "home/.config/vscode/settings.json";
-  };
+  # VS Code saves settings with an atomic temp-file rename and refuses to unlock a
+  # symlink into the read-only store, so settings.json can be neither linked nor
+  # store-rendered. It is seeded once as a real file and then owned by VS Code;
+  # delete it and run ./rebuild.sh to restore these defaults. The formatter paths
+  # depend on the logged-in user, hence the render.
+  vscodeSettings = pkgs.writeText "vscode-settings.json" (
+    builtins.replaceStrings [ "@PROFILE_DIRECTORY@" ] [ config.home.profileDirectory ] (
+      builtins.readFile ./home/.config/vscode/settings.json
+    )
+  );
 in
 {
   home = {
@@ -97,11 +109,6 @@ in
       builtins.mapAttrs (_: source: {
         source = config.lib.file.mkOutOfStoreSymlink "${dotfiles}/${source}";
       }) symlinks
-      // builtins.mapAttrs (_: template: {
-        text = builtins.replaceStrings [ "@PROFILE_DIRECTORY@" ] [ config.home.profileDirectory ] (
-          builtins.readFile (./. + "/${template}")
-        );
-      }) rendered
       // {
         # Apple's CommandLineTools gitconfig installs an ambient osxkeychain helper, so any
         # process running as me can ask `git credential fill` for a GitHub token. An empty
@@ -111,6 +118,18 @@ in
               helper =
         '';
       };
+
+    # VS Code owns its settings once seeded, so a rebuild must not overwrite the
+    # user's own edits. Only a missing file, or the old read-only store link, is
+    # replaced. See ADR-0008.
+    activation.vscode-settings = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
+      settings="$HOME/Library/Application Support/Code/User/settings.json"
+      if [[ ! -e "$settings" || -L "$settings" ]]; then
+        run mkdir -p "$(dirname "$settings")"
+        run rm -f "$settings"
+        run install -m 0644 ${vscodeSettings} "$settings"
+      fi
+    '';
   };
 
   programs = {

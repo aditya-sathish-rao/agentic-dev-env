@@ -81,6 +81,20 @@ The Automic Vault store that holds every secret this machine needs, behind its o
 approval. Tools read from it through `av inject`; the secret itself is never written to a
 dotfile.
 
+## seeded file
+
+A file Nix writes once into `$HOME` as a real, user-owned file and then leaves alone on later
+rebuilds, because the application itself writes it. VS Code's `settings.json` is the only
+one: its atomic saves cannot write through a link into the read-only store, so a rebuild
+seeds it only when it is missing or still the old store link.
+
+## supervision branch
+
+Firstmate's second conversation, beside the captain's chat, that triages fleet wakes in a
+model and escalates only what the captain should see. This repo pins it to
+`deepseek/deepseek-flash` at `low` effort through `home/firstmate/supervision-branch-*`,
+while the captain's own conversation keeps `settings.json`'s model and effort.
+
 ## tap
 
 A Homebrew repository of formulae and casks outside homebrew-cask, declared here as

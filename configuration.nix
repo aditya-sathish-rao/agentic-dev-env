@@ -56,9 +56,9 @@ in
     enable = true;
     user = identity.username;
     autoMigrate = true;
-    # Homebrew lives in the nix store, but taps stay mutable: `cleanup = "zap"`
-    # un-taps whatever is missing from homebrew.taps, which a store symlink
-    # (mutableTaps = false) cannot do.
+    # Homebrew lives in the nix store, but taps stay mutable: `autoUpdate` and any
+    # manual `brew` write need a writable tap directory, which a store symlink
+    # (mutableTaps = false) cannot offer.
     mutableTaps = true;
     taps = {
       "automic-vault/isotopes" = automic-vault-tap-src;
@@ -68,7 +68,12 @@ in
   homebrew = {
     enable = true;
     onActivation = {
-      cleanup = "zap"; # remove anything not listed here
+      # Additive, not exclusive. `zap` would delete every cask and formula this
+      # file does not list, preferences included, which is wrong on a machine that
+      # also holds apps this repo has no business pinning. Declared entries are
+      # still installed and upgraded; an entry REMOVED here has to be uninstalled
+      # by hand, because activation no longer prunes. See ADR-0006.
+      cleanup = "none";
       autoUpdate = true;
       extraFlags = [ "--force" ];
     };

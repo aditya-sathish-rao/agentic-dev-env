@@ -148,6 +148,20 @@ if [[ ${#toml_files[@]} -gt 0 ]]; then
   taplo lint "${toml_files[@]}" || status=1
 fi
 
+# Every principle skill must appear in the index skill, because that index is the
+# layer every harness reads. A principle added without it would silently not apply.
+principle_index=home/.agents/skills/engineering-principles/SKILL.md
+if [[ -f "$principle_index" ]]; then
+  for dir in home/.agents/skills/software-engineering-principles/principle-*/; do
+    [[ -d "$dir" ]] || continue
+    name=$(basename "$dir")
+    if ! grep -qF -- "$name" "$principle_index"; then
+      echo "check: $name is missing from $principle_index" >&2
+      status=1
+    fi
+  done
+fi
+
 if [[ "$mode" == all ]]; then
   if command -v nix >/dev/null 2>&1; then
     nix_user="${DOTFILES_USER:-$(id -un)}"

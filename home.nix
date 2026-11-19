@@ -10,6 +10,26 @@ let
   # rebuild.sh links the clone here, so the repo can be cloned anywhere.
   dotfiles = "${config.home.homeDirectory}/.dotfiles";
 
+  # Every directory under home/.agents/skills is one skill or a bundle of skills,
+  # so the skill links are generated and a new skill needs no edit here. Both
+  # roots are linked because pi and Copilot scan ~/.agents/skills while Claude
+  # Code scans ~/.claude/skills.
+  skills = builtins.readDir ./home/.agents/skills;
+  skillNames = builtins.filter (name: skills.${name} == "directory") (builtins.attrNames skills);
+  skillRoots = [
+    ".agents"
+    ".claude"
+  ];
+  skillLinks = builtins.listToAttrs (
+    builtins.concatMap (
+      name:
+      map (root: {
+        name = "${root}/skills/${name}";
+        value = "home/.agents/skills/${name}";
+      }) skillRoots
+    ) skillNames
+  );
+
   # $HOME-relative link target -> repo-relative source
   symlinks = {
     ".config/wezterm" = "home/.config/wezterm";
@@ -18,9 +38,6 @@ let
     # Claude reads CLAUDE.md; other agents read AGENTS.md - same file, one copy.
     ".claude/CLAUDE.md" = "home/AGENTS.md";
     ".claude/AGENTS.md" = "home/AGENTS.md";
-    # Universal (user-level) skills, read by any agent via ~/.agents/skills.
-    ".agents/skills/stow" = "home/.agents/skills/stow";
-    ".agents/skills/lavish" = "home/.agents/skills/lavish";
     # Pi's agent directory. Only the two config files are linked, because pi writes
     # its own runtime state (auth.json, trust.json, sessions) into ~/.pi/agent.
     # settings.json owns the default model every agent starts on; AGENTS.md is the
@@ -34,7 +51,8 @@ let
     # injects, gets DEEPSEEK_API_KEY from the vault for its own lifetime; the
     # wrapper owns why. ~/.local/bin is first on PATH.
     ".local/bin/pi" = "home/.local/bin/pi";
-  };
+  }
+  // skillLinks;
 
   # rendered, because the paths inside depend on the logged-in user
   rendered = {
@@ -56,6 +74,11 @@ in
         jq # json on command line
         lazygit
         neovim
+        # Swift linting and formatting for the Swift projects. Both are standalone
+        # binaries, so no Xcode toolchain comes with them. Run them in strict mode:
+        # swiftlint lint --strict, swift-format lint --strict.
+        swiftlint
+        swift-format
         # the font everything renders in
         nerd-fonts.hack
       ]

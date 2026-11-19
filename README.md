@@ -8,7 +8,8 @@ edits need no rebuild.
 ## What you get
 
 - **Packages** (nix): ripgrep, fd, fzf, jq, lazygit, neovim, Hack Nerd Font, the agent
-  harness `pi` (from its own flake input), and the formatters and linters the hook runs:
+  harness `pi` (from its own flake input), the Swift linters `swiftlint` and
+  `swift-format` (both run with `--strict`), and the formatters and linters the hook runs:
   nixfmt, shfmt, stylua, prettier, taplo, statix, deadnix, shellcheck, selene.
 - **Apps** (homebrew): wezterm, Visual Studio Code, herdr, Node, Automic
   Vault (`av`, which holds every secret this machine needs), and the
@@ -18,9 +19,9 @@ edits need no rebuild.
   from `.zshrc`, because macOS `path_helper` rewrites `PATH` after `.zshenv`).
 - **Configs**: wezterm, neovim, herdr, VS Code (font, terminal font, formatters), pi's
   agent directory (`~/.pi/agent/settings.json` owns the default model, `AGENTS.md` the
-  global instructions), user-level skills (`stow`, `lavish`) under `~/.agents/skills`,
-  `~/.config/git/config` (resets Apple's ambient credential helper) and `~/.ssh/config`
-  (Keychain-backed key).
+  global instructions), the user-level skills under `~/.agents/skills` and `~/.claude/skills`
+  (the engineering principles and the pstack set among them), `~/.config/git/config` (resets
+  Apple's ambient credential helper) and `~/.ssh/config` (Keychain-backed key).
 
 Config files under `home/` are edited in place in the repo and linked into `$HOME`, so an
 edit needs no rebuild. Two files are generated instead, because their content depends on
@@ -189,6 +190,10 @@ by `flake.lock`), herdr from Homebrew, the config files are linked
 `~/firstmate/config/crew-dispatch.json`), `~/.local/bin` joins `PATH`, and the generated
 `.zshrc` gains the `mate` alias.
 
+Homebrew no longer prunes, so the `claude-code` cask from the old harness survives a
+rebuild: `brew uninstall --cask claude-code` once. The `opencode` package needs nothing,
+because it came from nix and activation replaces the profile.
+
 It never installs, clones or updates firstmate itself. That clone at `~/firstmate` is manual
 because firstmate updates itself (`/updatefirstmate`), and it cannot install the companion
 CLIs below or store secrets. So a new machine needs these steps, in this order:
@@ -303,10 +308,18 @@ selene.toml         Lua lint rules (.selene/vim.yml defines Neovim globals)
 
 `home/AGENTS.md` is the single copy of the global agent instructions. Pi reads it as
 `~/.pi/agent/AGENTS.md`; the `~/.claude/CLAUDE.md` and `~/.claude/AGENTS.md` links are kept
-for any agent that still looks there. Skills live under `home/.agents/skills` and are linked
-to `~/.agents/skills`, which pi discovers: `lavish` (MIT, from
-[kunchenguid/lavish-axi](https://github.com/kunchenguid/lavish-axi)) and `stow`. Re-copy
-their `SKILL.md` here to update.
+for any agent that still looks there. Skills live under `home/.agents/skills`, and every
+directory there is linked one level deep into both `~/.agents/skills` (pi and Copilot) and
+`~/.claude/skills` (Claude Code), so adding a skill needs no change to `home.nix`. Skills
+vendored from elsewhere are re-copied here to update: `lavish` (MIT, from
+[kunchenguid/lavish-axi](https://github.com/kunchenguid/lavish-axi)), `stow`, and the pstack
+set (`bro`, `teach`, and the `principle-*` leaves in `software-engineering-principles/`).
+
+The engineering principles apply to every agent and every task. Their leaves stay exactly as
+pstack ships them, including `disable-model-invocation: true`, so the local
+`engineering-principles` skill is the model-invocable index that routes to them, and
+`home/AGENTS.md` makes that index mandatory for a harness that does not surface skills. See
+[ADR-0007](docs/adr/0007-engineering-principles-are-skills.md).
 
 ## Checks
 
@@ -352,8 +365,11 @@ Most of this is no longer needed, because the identity is dynamic.
 - **Another config.** Add the `$HOME`-relative target and the repo path to the table in
   `home.nix`, mapped through `config.lib.file.mkOutOfStoreSymlink`, then run
   `./rebuild.sh`. A file that needs generated content is rendered instead of linked.
-- **Homebrew cleanup.** `homebrew.onActivation.cleanup = "zap"` removes anything not
-  listed in `brews` or `casks`, so add what you install before running `./rebuild.sh`.
+- **Homebrew is additive.** `homebrew.onActivation.cleanup = "none"`: `brews` and `casks`
+  are installed and upgraded, and everything else on the machine is left alone. The price is
+  that deleting an entry here does not uninstall it - run `brew uninstall --cask <name>`
+  (or `brew zap <name>`) when you want it gone. The reasoning is in
+  [ADR-0006](docs/adr/0006-homebrew-is-additive.md).
 - **The tap.** The Automic Vault cask is not in homebrew-cask, so its tap is a flake input
   (`automic-vault-tap`, `flake = false`) installed by `nix-homebrew.taps`. Bump it with
   `nix flake update automic-vault-tap`. Taps stay mutable on purpose, and the cask entry

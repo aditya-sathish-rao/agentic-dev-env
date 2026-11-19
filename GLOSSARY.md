@@ -57,6 +57,14 @@ A signed Homebrew formula or cask shipped by a tap; the one used here is
 `automic-vault/isotopes`. Homebrew loads it only because the cask entry is fully qualified
 and `trusted`.
 
+## principle skill
+
+One leaf skill under `home/.agents/skills/software-engineering-principles`, vendored from
+pstack (MIT, Lauren Tan) and linked into `~/.agents/skills`. It keeps
+`disable-model-invocation: true`, so it loads only on request; the local
+`engineering-principles` skill is the index that makes it apply, and `home/AGENTS.md` makes
+that index mandatory.
+
 ## rendered file
 
 A file whose content Nix generates, unlike a linked file that only points at the repo.

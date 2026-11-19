@@ -1,5 +1,11 @@
 # global agent instructions
 
+- Work by the engineering principles in `~/.agents/skills/software-engineering-principles/`.
+  Each `principle-*/SKILL.md` states in its `description` when it applies, and the index is the
+  `engineering-principles` skill at `~/.agents/skills/engineering-principles/SKILL.md`. Load it
+  before you design, debug, refactor, review, test, or declare work done, read the leaf skill for
+  every principle that applies, and name the principles that changed a decision. They bind every
+  agent and every harness, including ones that do not surface skills.
 - Never use the em dash "—". Use plain dash "-" instead
 - When writing commit messages, NEVER auto-add your agent name as co-author
 - Never manually modify CHANGELOG.md files or any files that are marked as auto-generated

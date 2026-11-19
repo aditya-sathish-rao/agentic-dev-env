@@ -33,3 +33,9 @@ itself stays untrusted.
 - The cask entry must stay fully qualified, otherwise the trust flag does not apply.
 - Tap content is still pinned as a flake input, so a tap bump is
   `nix flake update automic-vault-tap`, not `brew update`.
+
+## Update, 2026-11-18
+
+`homebrew.onActivation.cleanup` is now `"none"`, so un-tapping by `zap` is no longer what
+justifies mutable taps. The setting stays for `autoUpdate` and manual `brew` writes, which
+still need a writable tap directory. See [ADR-0006](0006-homebrew-is-additive.md).

@@ -20,8 +20,8 @@ Run pi everywhere, for the first mate and every crewmate, and keep the model a v
 
 - pi comes from its own flake input (`pi.url` in `flake.nix`), pinned by `flake.lock`. Its
   package ships the Node runtime and model catalog, so the harness is declarative and no
-  global npm install exists. `homebrew.onActivation.cleanup = "zap"` then removes any cask
-  or formula that used to provide one.
+  global npm install exists. The old `claude-code` cask is not pruned by a rebuild, because
+  Homebrew activation is additive; see [ADR-0006](0006-homebrew-is-additive.md).
 - The model lives in `~/.pi/agent/settings.json` (`defaultProvider`, `defaultModel`,
   `defaultThinkingLevel`), linked from this repo. Crewmates inherit it because
   `crew-dispatch.json` names the harness and provider but not the model. Trying another

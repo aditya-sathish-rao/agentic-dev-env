@@ -1,494 +1,591 @@
 # agentic-dev-env
 
-macOS dev environment as code: [nix-darwin](https://github.com/nix-darwin/nix-darwin) and
-[home-manager](https://github.com/nix-community/home-manager) for everything declarative,
-Homebrew for GUI apps. Config files stay in this repo and are linked into place, so most
-edits need no rebuild.
+**A whole macOS dev machine, defined as code, with a built-in crew of AI coding agents.**
+
+Run one script on a fresh Mac and you get your shell, editors, terminal, CLI tools, GUI apps, secrets handling and an agent setup (`mate`) that splits a request into parallel tasks and ships them with a crew of agents. Change a config file and, most of the time, it takes effect immediately with no rebuild.
+
+> **New here?** Read [The idea](#the-idea), skim [The big picture](#the-big-picture), then jump to [Setup guide](#setup-guide). Unfamiliar terms are defined in [GLOSSARY.md](GLOSSARY.md).
+
+## Contents
+
+1. [The idea](#the-idea)
+2. [The big picture](#the-big-picture)
+3. [What you get](#what-you-get)
+4. [Setup guide](#setup-guide)
+5. [How a rebuild works](#how-a-rebuild-works)
+6. [How config files reach your machine](#how-config-files-reach-your-machine)
+7. [The agent crew](#the-agent-crew)
+8. [Secrets](#secrets)
+9. [Quality checks](#quality-checks)
+10. [Day to day cheat sheet](#day-to-day-cheat-sheet)
+11. [Repository layout](#repository-layout)
+12. [Adapting this to your machine](#adapting-this-to-your-machine)
+13. [Troubleshooting](#troubleshooting)
+14. [Security scan findings](#security-scan-findings)
+15. [Design decisions (ADRs)](#design-decisions-adrs)
+
+---
+
+## The idea
+
+This repo does two jobs, and it helps to keep them separate in your head.
+
+| Layer                 | What it does                                                                                                                                                       | Built with                                                                                                                                   |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1. The machine**    | Declares everything installed and configured on a Mac: packages, apps, shell, editor and terminal configs, system settings.                                        | [nix-darwin](https://github.com/nix-darwin/nix-darwin), [home-manager](https://github.com/nix-community/home-manager), Homebrew for GUI apps |
+| **2. The agent crew** | Wires up AI agents on top of that machine: one harness (`pi`), one model provider (DeepSeek), a coordinator (the _first mate_) and parallel workers (_crewmates_). | `pi`, [firstmate](https://github.com/kunchenguid/firstmate), herdr, Automic Vault                                                            |
+
+Three principles run through the whole repo:
+
+- **Everything is declarative.** The repo is the source of truth. Re-running the rebuild always converges on the same machine.
+- **Edits are cheap.** Config files live in this repo and are _linked_ into `$HOME`, so most edits take effect without a rebuild.
+- **Secrets never sit in the environment.** Every secret lives in Automic Vault and is handed to a process only for the life of that process.
+
+## The big picture
+
+```mermaid
+flowchart TB
+    You(["You"])
+
+    subgraph Repo["This repo: the source of truth"]
+        direction TB
+        RB["rebuild.sh<br/>the only entry point"]
+        FL["flake.nix + flake.lock<br/>pinned inputs"]
+        CFG["configuration.nix<br/>system layer"]
+        HM["home.nix<br/>user layer"]
+        DOT["home/<br/>config files: wezterm, nvim, herdr,<br/>vscode, pi, agent skills"]
+    end
+
+    subgraph Mac["Your Mac"]
+        direction TB
+        SYS["System<br/>macOS defaults, fonts, Tailscale,<br/>Homebrew apps"]
+        USR["User environment<br/>CLI tools, zsh, starship, git, ssh"]
+        LINKS["Linked configs in $HOME"]
+    end
+
+    subgraph Crew["Agent crew"]
+        direction TB
+        MATE["mate<br/>shell alias"]
+        FM["First mate<br/>pi inside ~/firstmate"]
+        CM["Crewmates<br/>one per task"]
+    end
+
+    AV[("Automic Vault<br/>all secrets")]
+    LLM["DeepSeek model API"]
+
+    You --> RB
+    RB --> FL
+    FL --> CFG --> SYS
+    FL --> HM --> USR
+    DOT -. "symlinked" .-> LINKS
+    HM --> LINKS
+
+    You --> MATE --> FM
+    FM -- "spawns" --> CM
+    AV -. "av inject" .-> FM
+    AV -. "av inject" .-> CM
+    FM --> LLM
+    CM --> LLM
+    LINKS -. "settings, instructions, skills" .-> FM
+```
+
+**Reading the diagram:** you only ever run `rebuild.sh` (to build the machine) and `mate` (to use the crew). Everything in the middle is wiring that those two commands trigger.
 
 ## What you get
 
-- **Packages** (nix): ripgrep, fd, fzf, jq, lazygit, neovim, Hack Nerd Font, the agent
-  harness `pi` (from its own flake input), the Swift linters `swiftlint` and
-  `swift-format` (both run with `--strict`), and the formatters and linters the hook runs:
-  nixfmt, shfmt, stylua, prettier, taplo, statix, deadnix, shellcheck, selene.
-- **Apps** (homebrew): wezterm, Visual Studio Code, herdr, Node, Automic
-  Vault (`av`, which holds every secret this machine needs), and the
-  `automic-vault/isotopes/gh-cli` isotope that `av harden gh` installs.
-- **Shell**: zsh with autosuggestions and syntax highlighting, starship prompt, git
-  aliases, `mate` for the crew, and `~/.local/bin` on `PATH` (exported
-  from `.zshrc`, because macOS `path_helper` rewrites `PATH` after `.zshenv`).
-- **Configs**: wezterm, neovim, herdr, VS Code (font, terminal font, formatters), pi's
-  agent directory (`~/.pi/agent/settings.json` owns the default model, `AGENTS.md` the
-  global instructions), the user-level skills under `~/.agents/skills` and `~/.claude/skills`
-  (the engineering principles and the pstack set among them), `~/.config/git/config` (resets
-  Apple's ambient credential helper) and `~/.ssh/config` (Keychain-backed key).
+- **Packages (nix):** ripgrep, fd, fzf, jq, lazygit, neovim, Hack Nerd Font, the agent harness `pi` (from its own flake input), the Swift linters `swiftlint` and `swift-format` (both run with `--strict`), and the formatters and linters the commit hook runs: nixfmt, shfmt, stylua, prettier, taplo, statix, deadnix, shellcheck, selene.
+- **Apps (Homebrew):** wezterm, Visual Studio Code, herdr, Node, Automic Vault (`av`, which holds every secret this machine needs), and the `automic-vault/isotopes/gh-cli` isotope that `av harden gh` installs.
+- **Shell:** zsh with autosuggestions and syntax highlighting, the starship prompt, git aliases, the `mate` alias, and `~/.local/bin` on `PATH` (exported from `.zshrc`, because macOS `path_helper` rewrites `PATH` after `.zshenv`).
+- **Configs:** wezterm, neovim, herdr, VS Code (font, terminal font, formatters), pi's agent directory (`~/.pi/agent/settings.json` owns the default model, `AGENTS.md` holds the global instructions), user-level skills under `~/.agents/skills` and `~/.claude/skills`, `~/.config/git/config` (resets Apple's ambient credential helper) and `~/.ssh/config` (Keychain-backed key).
 
-Config files under `home/` are edited in place in the repo and linked into `$HOME`, so an
-edit needs no rebuild. `~/.config/git/config` is generated instead, because its content is
-written from `home.nix`. VS Code's `settings.json` goes the other way: it is seeded once from
-`home/.config/vscode/settings.json` as a real file and then owned by VS Code, because its
-atomic saves cannot write through a link into the read-only store. Delete the file and run
-`./rebuild.sh` to restore the defaults. See
-[ADR-0008](docs/adr/0008-vscode-owns-its-settings.md).
+## Setup guide
 
-Terms used below are defined in [GLOSSARY.md](GLOSSARY.md).
+### Before you start
 
-## Setup from scratch
+- A Mac (Apple Silicon or Intel) and an admin user. Nothing in the tree hardcodes the username: `identity.nix` reads it from the environment when the flake is evaluated. See [Adapting](#adapting-this-to-your-machine) if the defaults do not fit.
+- An account with the model provider (a DeepSeek API key).
+- About 30 minutes, most of it waiting for the first build.
 
-Needs a macOS machine (Apple Silicon or Intel) and an admin user. Nothing in the tree
-hardcodes that user: `identity.nix` reads the identity from the environment when the flake
-is evaluated, and the host platform comes from the machine. See [Adapting](#adapting) if
-the defaults do not fit.
+### The order of operations
 
-```sh
+The order matters. Cloning firstmate _before_ the first rebuild is the step people most often get wrong.
+
+```mermaid
+flowchart TD
+    A["1. Clone firstmate to ~/firstmate<br/>BEFORE the first rebuild"] --> B["2. Clone this repo to ~/github/agentic-dev-env"]
+    B --> C["3. Run ./rebuild.sh"]
+    C --> D{"Xcode command line<br/>tools installed?"}
+    D -- "no" --> D1["Installer starts and the script stops.<br/>Re-run ./rebuild.sh when it finishes"]
+    D1 --> C
+    D -- "yes" --> E["Build and activate<br/>one sudo prompt"]
+    E --> F["4. Open a new terminal"]
+    F --> G["5. Install companion CLIs<br/>npm and installer scripts"]
+    G --> H["6. Automic Vault manual steps"]
+    H --> I["7. Run mate"]
+    I --> J{"Any MISSING: lines?"}
+    J -- "yes" --> J1["Approve the install or upgrade it offers"]
+    J1 --> I
+    J -- "no" --> K(["Ready"])
+```
+
+### Step 1: clone firstmate (manual, once)
+
+```bash
+git clone https://github.com/kunchenguid/firstmate ~/firstmate
+```
+
+Do this first. Activation creates `~/firstmate/config/` to hold a linked dispatch file, and `git clone` then refuses the non-empty directory. If you already ran the rebuild, `rm -rf ~/firstmate` (nothing is in it yet) and clone again.
+
+Firstmate is cloned by hand because it updates itself (`/updatefirstmate`), so this repo deliberately never installs or updates it.
+
+### Step 2: clone this repo and rebuild
+
+```bash
 git clone https://github.com/aditya-sathish-rao/agentic-dev-env.git ~/github/agentic-dev-env
 cd ~/github/agentic-dev-env
 ./rebuild.sh
 ```
 
-`rebuild.sh` is the only entry point, and it is idempotent. On a fresh machine and on an
-existing one it does, in order:
+`rebuild.sh` is idempotent and is the only entry point, on a fresh machine and on an existing one. See [How a rebuild works](#how-a-rebuild-works) for what it does. When it finishes, **open a new terminal**.
 
-1. Checks the Xcode command line tools. If they are missing it starts the installer and
-   stops, so run it again when that finishes.
-2. Links the clone to `~/.agentic-dev-env`, so every config path resolves through one
-   place and the clone can live anywhere. It refuses to nest when `~/.agentic-dev-env` is
-   already a real directory.
-3. Sets `core.hooksPath` to `.githooks`.
-4. Installs [Determinate Nix](https://determinate.systems/nix) if `nix` is missing.
-5. Builds as the user who ran it: `nix build --impure`.
-6. Activates as root: `sudo nix-env --set`, then `sudo $SYSTEM/activate`. Expect one
-   `sudo` prompt. See [ADR-0004](docs/adr/0004-build-as-user-activate-as-root.md).
+### Step 3: install the companion CLIs (manual, once)
 
-The flake is evaluated impurely, so the darwin configuration belongs to whoever runs the
-script. Homebrew itself, then every brew and cask, is installed by this activation.
+Firstmate's helper CLIs are not in nixpkgs, so they come from their own installers. This machine runs gh-axi 0.1.51, chrome-devtools-axi 0.1.46, tasks-axi 0.2.6, quota-axi 0.1.69, lavish-axi 0.1.97, treehouse 3.1.8 and no-mistakes v1.106.1.
 
-Home-manager runs last, so a failure before it leaves the system switched but the user links
-untouched. `home-manager.backupFileExtension = "hm-bak"` in `flake.nix` keeps the common case
-from stopping it: a plain file at a managed path (an old generated `~/.config/git/config`, say)
-is moved to `<path>.hm-bak` instead of aborting every link.
-
-After it finishes, open a new terminal. The Automic Vault steps below are the part that
-cannot be automated, and the crew adds one more in [Crew](#crew): store its key. Everything
-else the crew needs, firstmate's checkout included, is installed by `./rebuild.sh` itself.
-
-## Day to day
-
-```sh
-./rebuild.sh    # apply config changes
+```bash
+npm install -g gh-axi chrome-devtools-axi tasks-axi quota-axi lavish-axi
+gh-axi setup hooks && chrome-devtools-axi setup hooks && lavish-axi setup hooks
+curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh | sh
 ```
 
-Most edits need no rebuild at all, because config files are linked into the repo. Generated
-files are the exception: a VS Code settings change needs `./rebuild.sh`, and
-`~/.config/git/config` is edited in `home.nix`.
+`~/.local/bin` is already on `PATH`, so the treehouse and no-mistakes installers write there instead of asking to `sudo` into `/usr/local/bin`.
 
-The agent harness moves with the flake, so a pi release is `nix flake update pi` and then
-`./rebuild.sh`. Do not run `pi update pi`: the installed copy lives in the store and cannot
-update itself.
+The three `setup hooks` lines install SessionStart hooks for Claude Code, Codex, OpenCode and Copilot CLI. Pi is not one of those targets, so they do not reach the first mate. It gets the same guidance from the `lavish` skill under `~/.agents/skills` and by calling the `-axi` CLIs directly. Keep those lines only if you also run one of those harnesses.
 
-## Manual steps
+### Step 4: Automic Vault manual steps (once per Mac)
 
-These are the steps Automic Vault only lets a human do, once per Mac, after `./rebuild.sh`.
-They are not automated.
+These are the steps Automic Vault only lets a human do. They are not automated.
 
-1. **Start the app.** Homebrew installs the bundle but nothing launches it, and every `av`
-   command that needs Approval fails with `approval service is not running` until the
-   menu bar app is up:
+1. **Start the app.** Homebrew installs it but nothing launches it, and every `av` command that needs Approval fails with `approval service is not running` until the menu bar app is up.
 
-   ```sh
+   ```bash
    open -a "Automic Vault"
    ```
 
-   Grant the permission prompts it shows (notifications; Keychain access for the Data
-   Protection Keychain that stores the secrets). Leave it running.
+   Grant the permission prompts (notifications, and Keychain access for the Data Protection Keychain that stores the secrets). Leave it running.
 
-2. **Install the `av` CLI.** The cask ships `av` inside the bundle; the copy on `PATH` is
-   installed by the app: **Install av CLI** (it authenticates as admin and writes a
-   root-owned `/usr/local/bin/av`). It refuses to install into a directory the user owns,
-   so if `/usr/local/bin` is user-owned, fix that first and click Install again:
+2. **Install the `av` CLI.** In the app choose **Install av CLI**. It authenticates as admin and writes a root-owned `/usr/local/bin/av`. It refuses to install into a directory you own, so if `/usr/local/bin` is user-owned, fix that and click Install again:
 
-   ```sh
+   ```bash
    sudo chown root:wheel /usr/local/bin
    ```
 
 3. **Store the DeepSeek key.**
 
-   ```sh
+   ```bash
    av save DEEPSEEK_API_KEY   # hidden input, then approve the prompt
    ```
 
-   This key now lives only in Automic Vault and reaches every agent through `av inject`.
+   The key now lives only in Automic Vault and reaches every agent through `av inject`.
 
-4. **Let the terminal inject it.** Until the terminal is granted access, `av inject` asks
-   for Approval on every launch. In the app: select `DEEPSEEK_API_KEY` →
-   **Allow Launcher** → WezTerm. After that `mate` starts with no prompt.
+4. **Let the terminal inject it.** In the app: select `DEEPSEEK_API_KEY`, then **Allow Launcher**, then WezTerm. Without this, `av inject` asks for Approval on every launch.
 
-5. **Harden `gh`.** The isotope is declared in `configuration.nix`, but the isotope alone
-   does not migrate or gate anything, so run the hardener:
+5. **Harden `gh`.** The isotope is declared in `configuration.nix`, but it does not migrate or gate anything until you run the hardener:
 
-   ```sh
+   ```bash
    av harden gh
    av doctor gh   # should report healthy
    ```
 
-   Then delete the legacy `github.com` Internet password item in Keychain Access, so
-   nothing can read that token directly.
+   Then delete the legacy `github.com` Internet password item in Keychain Access so nothing can read that token directly. Dispatching clones projects and opens PRs, so `mate` cannot do anything until `av doctor gh` is healthy.
 
-6. **Encrypt the SSH key.** `av scan` reports `~/.ssh/id_ed25519` as a HIGH finding while
-   it has no passphrase, and only you can type the new one:
+6. **Encrypt the SSH key.** `av scan` reports `~/.ssh/id_ed25519` as a HIGH finding while it has no passphrase, and only you can type the new one:
 
-   ```sh
+   ```bash
    ssh-keygen -p -f ~/.ssh/id_ed25519
    ssh-add --apple-use-keychain ~/.ssh/id_ed25519
    ```
 
-   `~/.ssh/config` is managed with `AddKeysToAgent`/`UseKeychain`, so the passphrase is
-   stored in the macOS Keychain once and push/pull keep working without retyping it.
+   `~/.ssh/config` is managed with `AddKeysToAgent` and `UseKeychain`, so the passphrase is stored in the macOS Keychain once and push and pull keep working without retyping it.
 
-## Crew
+### Step 5: run the crew
 
-Talk to one agent, ship with a crew. `mate` starts the first mate: pi inside a checkout of
-your [firstmate](https://github.com/kunchenguid/firstmate) fork at `~/firstmate`. It splits a
-request into parallel tasks and spawns one crewmate per task into its own herdr tab and git
-worktree. Everything runs the same harness, pi, on DeepSeek V4.1 Flash.
-
-```sh
-./rebuild.sh   # clones firstmate at the recorded commit, installs the crew's tools
+```bash
 mate
 ```
 
-What is declared here, and where:
+The first launch reports anything still missing as `MISSING:` and asks before installing or upgrading it.
 
-- `pi` is a flake input ([flake.nix](flake.nix), pinned by `flake.lock`) and the only agent
-  harness here. Its package ships its own Node runtime and model catalog, so no global npm
-  install is involved and the harness version moves only when the lock does.
-- `home/.pi/agent/settings.json` is linked to `~/.pi/agent/settings.json` and owns the model
-  every agent starts on: `defaultProvider: deepseek`, `defaultModel: deepseek-flash` (the
-  catalog entry named DeepSeek V4.1 Flash), `defaultThinkingLevel: high`. To try a different
-  model for the first mate, change those values and start `mate` again. The file is a link
-  into this repo, so it needs no rebuild.
-- `home/firstmate/crew-dispatch.json` is linked to `~/firstmate/config/crew-dispatch.json`.
-  It declares one profile, `{ "harness": "pi", "provider": "deepseek" }`, and deliberately
-  omits the model, so crewmates inherit the same `settings.json` default. With
-  `shared_quota: true` the `quota-array-dispatch` skill resolves the declared profile in
-  order and makes no quota call: there is one provider and one budget.
-- `home/firstmate/supervision-branch-model` and `-effort` are linked into the same
-  `config/`. They pin the supervision branch, the second conversation that triages fleet
-  wakes beside the captain's chat, to `deepseek/deepseek-flash` at `low` effort while the
-  captain keeps `settings.json`'s `high`. Routine triage is cheap, and anything
-  captain-worthy still reaches main, which keeps the full effort. Fleet polling never
-  reaches a model at all: the bash watcher blocks on herdr's event stream, absorbs benign
-  wakes itself, and wakes the branch only for a real transition or decision. A pin applies
-  when the next `mate` session opens; `/supervision-model` rewrites these files in place, so
-  run `./rebuild.sh` after using it to put the declarative pins back.
-- `mate` selects the herdr backend for the launch and injects `DEEPSEEK_API_KEY` into the
-  first mate only. Crewmate panes come from a herdr server that never saw the key, so the
-  wrapper below injects it per crewmate.
-- `home/.local/bin/pi` shadows the harness with a thin wrapper. A crewmate pane starts with
-  no `DEEPSEEK_API_KEY`, so the wrapper first re-runs itself under `av inject` and each
-  worker holds the key only for its own lifetime; if av fails, the launch stops instead of
-  running signed out. Probes that cannot use a key (`--help`, `--version`, `--list-models`,
-  `auth`, `update`) pass straight through, so firstmate's version detection never waits on
-  a vault approval.
+### Setup checklist
 
-### What a rebuild automates, and what stays manual
+- [ ] firstmate cloned to `~/firstmate` (before the first rebuild)
+- [ ] `./rebuild.sh` completed and a new terminal opened
+- [ ] companion CLIs installed
+- [ ] Automic Vault running, `av` installed
+- [ ] `DEEPSEEK_API_KEY` saved and the launcher allowed
+- [ ] `av doctor gh` healthy
+- [ ] SSH key has a passphrase
+- [ ] `mate` starts with no `MISSING:` lines
 
-`./rebuild.sh` automates the harness, the crew's tools and the wiring:
+## How a rebuild works
 
-- **firstmate**, cloned over HTTPS at the commit recorded in
-  [home/firstmate/expected-commit](home/firstmate/expected-commit) _before_ anything links
-  into it. The clone-before-rebuild step is gone: activation always finds a repository.
-- **the crew's CLIs** from [nix/crew-tools](nix/crew-tools): the five `-axi` CLIs,
-  `chrome-devtools-mcp`, `treehouse` and `no-mistakes`, each built from its published artifact
-  and pinned by hash, plus `nodejs_24` - the one runtime they all run on.
-- **the no-mistakes daemon**, declared as a `launchd.agents` entry that points at the store
-  binary, so bumping the tool moves the daemon with it.
-- the config links (`~/.pi/agent/settings.json`, `~/.pi/agent/AGENTS.md`,
-  `~/firstmate/config/crew-dispatch.json` and the two supervision pins), `~/.local/bin` on
-  `PATH`, and the `mate` alias in the generated `.zshrc`.
+`./rebuild.sh` builds as **you** and activates as **root**. Building as the user keeps the (impure) flake evaluation tied to whoever runs it. Only the final activation needs root, so you see exactly one `sudo` prompt. The reasoning is in [ADR-0004](docs/adr/0004-build-as-user-activate-as-root.md).
 
-Homebrew no longer prunes, so the `claude-code` cask from the old harness survives a
-rebuild: `brew uninstall --cask claude-code` once. The `opencode` package needs nothing,
-because it came from nix and activation replaces the profile.
-
-Nothing installs a crew tool with `npm install -g` or `curl | sh` any more. The versions live
-in one data file, [nix/crew-tools/pins.nix](nix/crew-tools/pins.nix), and the binaries come
-from the Nix store. `~/firstmate/bin/fm-bootstrap.sh` still lists missing tools as `MISSING:`,
-but that is upstream text: if it ever fires, the fix is `./rebuild.sh`, not the npm or curl
-command it suggests.
-
-firstmate itself is the one tree this repo does not own outright. It updates itself with
-`/updatefirstmate`, so a rebuild reports an existing checkout's HEAD against the recorded
-commit and never moves it. It clones from the fork `aditya-sathish-rao/firstmate`, with
-upstream as a second remote. A firstmate bump is a review, not a fetch: read the upstream
-diff, merge it into the fork, then update `home/firstmate/expected-commit`.
-
-A new machine needs these steps, in this order:
-
-1. **`./rebuild.sh`** - pi, herdr, firstmate, the crew's pinned tools, Node, the daemon, the
-   links, `~/.local/bin` on `PATH`, `mate`.
-2. **Store the key and allow the launcher** (below). `mate` injects it into the first mate,
-   and the pi wrapper into each crewmate.
-3. **Check `gh`.** Dispatching clones projects and opens PRs, so `av doctor gh` must report
-   healthy on this machine's hardened `gh-cli` isotope before `mate` can do anything.
-4. **Run `mate`.** The first launch reports anything still missing as `MISSING:` and asks
-   before installing or upgrading it.
-
-#### Bumping a crew tool
-
-Do not edit `pins.nix` by hand. Run the one writer:
-
-```sh
-./nix/crew-tools/update.sh gh-axi 0.1.52   # or with no version, the latest that passes
+```mermaid
+flowchart TD
+    S(["./rebuild.sh"]) --> X{"Xcode CLT<br/>present?"}
+    X -- "no" --> XI["Start installer, then stop.<br/>Re-run when done"]
+    X -- "yes" --> L["Link the clone to ~/.agentic-dev-env<br/>so every config path resolves<br/>through one place"]
+    L --> H["Set core.hooksPath to .githooks"]
+    H --> N{"nix installed?"}
+    N -- "no" --> NI["Install Determinate Nix"]
+    N -- "yes" --> B
+    NI --> B["Build as you<br/>nix build --impure"]
+    B --> A1["Activate as root<br/>sudo nix-env --set"]
+    A1 --> A2["sudo SYSTEM/activate"]
+    A2 --> BREW["Homebrew installed, then<br/>every brew and cask"]
+    BREW --> HMG["home-manager runs last:<br/>user packages and config links"]
+    HMG --> DONE(["Open a new terminal"])
 ```
 
-It refuses a version published less than 14 days ago, cross-checks the release assets against
-the publisher's own `checksums.txt`, audits the npm signatures for the lock it generates,
-prints the lock diff, and refetches both hashes. Review the diff, then
-`./.githooks/check --all` and `./rebuild.sh`.
+A few details worth knowing:
 
-The pins this machine runs: gh-axi 0.1.51, chrome-devtools-axi 0.1.46, tasks-axi 0.2.6,
-quota-axi 0.1.69, lavish-axi 0.1.97, chrome-devtools-mcp 1.13.0, treehouse 3.1.8,
-no-mistakes 1.106.1, node 24.22.1.
+- The script refuses to nest if `~/.agentic-dev-env` is already a real directory.
+- The flake is evaluated impurely, so the darwin configuration belongs to whoever runs the script.
+- Home-manager runs **last**. A failure before it leaves the system switched but the user links untouched.
+- `home-manager.backupFileExtension = "hm-bak"` (in `flake.nix`) means a plain file at a managed path, such as an old generated `~/.config/git/config`, is moved to `<path>.hm-bak` instead of aborting every link.
 
-`treehouse update`, `no-mistakes update` and the `-axi` update subcommands try to replace
-their own read-only store binary and fail. The bump path is the command above.
+## How config files reach your machine
 
-The three `-axi setup hooks` lines are not part of setup any more: they install SessionStart
-hooks for Claude Code, Codex, OpenCode and Copilot CLI, and pi reads skills instead, getting
-the same guidance from the `lavish` skill under `~/.agents/skills`. Run them by hand only if
-you also drive one of those harnesses.
+Not every config file is delivered the same way. There are three delivery modes, and knowing which one a file uses tells you whether an edit needs a rebuild.
 
-#### Removing the old copies, after a soak
+```mermaid
+flowchart LR
+    subgraph REPO["Repo"]
+        P["home/... configs<br/>wezterm, nvim, herdr, pi, skills"]
+        G["Content written in home.nix<br/>~/.config/git/config"]
+        V["home/.config/vscode/settings.json"]
+    end
 
-`~/.local/bin` comes first on `PATH` and still holds the treehouse and no-mistakes installers,
-while the five axi CLIs sit in `/opt/homebrew/bin`. Until those are deleted they shadow the
-pinned ones, so deletion is deliberately separate from the switch. Once `command -v` has been
-returning profile paths for a week:
+    subgraph HOME["Your $HOME"]
+        L1["Symlink into the repo"]
+        L2["Generated file<br/>read-only, from the store"]
+        L3["Real file<br/>seeded once, then owned by VS Code"]
+    end
 
-```sh
-npm uninstall -g gh-axi chrome-devtools-axi tasks-axi quota-axi lavish-axi
-rm -f ~/.local/bin/treehouse ~/.local/bin/no-mistakes
-rm -rf ~/.no-mistakes/bin
+    P -- "mkOutOfStoreSymlink" --> L1
+    G -- "rendered at rebuild" --> L2
+    V -- "copied once if missing" --> L3
+
+    L1 -. "edit in the repo: instant" .-> L1
+    L2 -. "edit home.nix, then ./rebuild.sh" .-> L2
+    L3 -. "VS Code edits it directly.<br/>Delete it and rebuild to reset" .-> L3
 ```
 
-Then confirm every tool resolves into the profile, not the old locations:
+| Mode          | Used for                                                                   | To change it                                                                               |
+| ------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| **Linked**    | wezterm, neovim, herdr, pi settings, `AGENTS.md`, skills, firstmate config | Edit the file in the repo. **No rebuild.**                                                 |
+| **Generated** | `~/.config/git/config`                                                     | Edit `home.nix`, then `./rebuild.sh`                                                       |
+| **Seeded**    | VS Code `settings.json`                                                    | VS Code owns it after the first seed. Delete it and run `./rebuild.sh` to restore defaults |
 
-```sh
-for t in gh-axi chrome-devtools-axi tasks-axi quota-axi lavish-axi treehouse no-mistakes; do
-  printf '%s\t%s\n' "$t" "$(command -v "$t")"
-done
+VS Code is the odd one out because its atomic saves cannot write through a link into the read-only Nix store. See [ADR-0008](docs/adr/0008-vscode-owns-its-settings.md).
+
+## The agent crew
+
+> _Talk to one agent, ship with a crew._
+
+### Cast
+
+| Role                   | What it is                                                                                                                                                            |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`mate`**             | A shell alias that launches the first mate with the right environment.                                                                                                |
+| **First mate**         | `pi` running inside your clone of [firstmate](https://github.com/kunchenguid/firstmate) at `~/firstmate`. You talk to it. It splits a request into parallel tasks.    |
+| **Crewmates**          | Worker agents, one per task, each in its own herdr tab and its own git worktree.                                                                                      |
+| **Supervision branch** | A second, cheaper conversation beside your chat that triages fleet wake-ups, so the first mate is only interrupted by things that matter.                             |
+| **`pi`**               | The one agent harness. Its package ships its own Node runtime and model catalog, so there is no global npm install and its version moves only when `flake.lock` does. |
+| **herdr**              | The terminal multiplexer that hosts the tabs and panes.                                                                                                               |
+
+### What happens when you run `mate`
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor You
+    participant Mate as mate (alias)
+    participant AV as Automic Vault
+    participant FM as First mate (pi)
+    participant HD as herdr
+    participant W as pi wrapper
+    participant CM as Crewmate (pi)
+    participant GH as GitHub (hardened gh)
+
+    You->>Mate: mate
+    Mate->>AV: av inject +DEEPSEEK_API_KEY -- env FM_BACKEND=herdr pi
+    AV-->>FM: starts pi with the key, for this process only
+    You->>FM: describe what you want built
+    FM->>FM: split the request into parallel tasks
+    loop one per task
+        FM->>HD: spawn a tab and a git worktree
+        HD->>W: start pi in the new pane (no key present)
+        W->>AV: re-run itself under av inject
+        AV-->>CM: pi with the key, for this worker's lifetime
+        CM->>GH: clone, branch, open a PR
+    end
+    CM-->>HD: progress and completion events
+    HD-->>FM: wake only on a real transition or decision
+    FM-->>You: results, and anything that needs a human call
 ```
 
-Every path should sit under `/etc/profiles/per-user/<user>/bin`. The daemon's own state in
-`~/.no-mistakes` is untouched by all three commands.
+Key things this shows:
 
-Save the key once, as in [Manual steps](#manual-steps) step 3:
+- The **first mate** gets its key from `mate`. **Crewmates** get theirs from the `pi` wrapper, because herdr's server never saw the key. Each worker holds it only while it runs, and if `av` fails the launch stops instead of running signed out.
+- Fleet polling never reaches a model. A bash watcher blocks on herdr's event stream, absorbs benign wake-ups itself, and wakes the supervision branch only for a real transition or decision.
 
-```sh
-av save DEEPSEEK_API_KEY
+### Model and effort settings
+
+```mermaid
+flowchart LR
+    S["home/.pi/agent/settings.json<br/>provider: deepseek<br/>model: deepseek-flash<br/>thinking: high"]
+    D["home/firstmate/crew-dispatch.json<br/>profile: harness pi, provider deepseek<br/>no model, so it inherits"]
+    SB["home/firstmate/supervision-branch-model<br/>and supervision-branch-effort<br/>deepseek/deepseek-flash at low"]
+
+    S --> FM["First mate<br/>(captain's chat)"]
+    S --> CM["Crewmates"]
+    D --> CM
+    SB --> SUP["Supervision branch<br/>(fleet triage)"]
 ```
 
-Then allow the launcher for it, as in step 4.
+- `home/.pi/agent/settings.json` is linked to `~/.pi/agent/settings.json` and owns the model every agent starts on: `defaultProvider: deepseek`, `defaultModel: deepseek-flash` (the catalog entry named DeepSeek V4.1 Flash), `defaultThinkingLevel: high`. To try another model for the first mate, change those values and restart `mate`. No rebuild needed.
+- `home/firstmate/crew-dispatch.json` is linked to `~/firstmate/config/crew-dispatch.json`. It declares one profile and deliberately omits the model, so crewmates inherit the `settings.json` default. With `shared_quota: true`, the `quota-array-dispatch` skill resolves the declared profile in order and makes no quota call, since there is one provider and one budget.
+- `supervision-branch-model` and `-effort` pin the supervision branch to `deepseek/deepseek-flash` at `low` effort, while the captain keeps `high`. Routine triage is cheap, and anything captain-worthy still reaches the main conversation. A pin applies when the next `mate` session opens. `/supervision-model` rewrites these files in place, so run `./rebuild.sh` afterwards to put the declarative pins back.
 
-## Sandbox
+### What a rebuild automates and what it does not
 
-Worktrees isolate git state, not authority. A crewmate runs as you: your files, your `gh`
-token, your network. The boundary is one Linux VM around the fleet, declared here like
-everything else.
+| Automated by `./rebuild.sh`                                                         | Manual, once                         |
+| ----------------------------------------------------------------------------------- | ------------------------------------ |
+| `pi` from the flake input                                                           | Clone firstmate                      |
+| herdr from Homebrew                                                                 | Install the companion CLIs           |
+| Config links (`settings.json`, `AGENTS.md`, `crew-dispatch.json`, supervision pins) | Store the key and allow the launcher |
+| `~/.local/bin` on `PATH`                                                            | Harden `gh`                          |
+| The `mate` alias in `.zshrc`                                                        | Encrypt the SSH key                  |
 
-[nix/crew-sandbox/lima.yaml](nix/crew-sandbox/lima.yaml) is that VM: Lima on Apple's `vz`
-driver, Ubuntu 26.04 LTS pinned by image digest. It will hold herdr, the first mate, the
-crewmates and the worktree pool. What exists today is the box, the egress proxy and the
-token broker, each with a gate; what is left is moving the fleet in.
+Homebrew no longer prunes, so the `claude-code` cask from the old harness survives a rebuild. Run `brew uninstall --cask claude-code` once. The `opencode` package needs nothing, because it came from nix and activation replaces the profile.
 
-```sh
-nix run .#crew-sandbox -- up           # create it on first use, then start it
-nix run .#crew-sandbox -- shell        # a shell as the administration account
-nix run .#crew-sandbox -- check        # the phase-1 gate: the box
-nix run .#crew-sandbox -- check proxy      # phase 3a: the egress proxy
-nix run .#crew-sandbox -- check toolchain  # phase 2: the guest's tools
-nix run .#crew-sandbox -- proxy        # the guest's only way out, in the foreground
-nix run .#crew-sandbox -- broker       # mint task tokens, in the foreground
+### Global instructions and skills
+
+`home/AGENTS.md` is the single copy of the global agent instructions. Pi reads it as `~/.pi/agent/AGENTS.md`. The `~/.claude/CLAUDE.md` and `~/.claude/AGENTS.md` links are kept for any agent that still looks there.
+
+Skills live under `home/.agents/skills`. Every directory there is linked one level deep into both `~/.agents/skills` (pi and Copilot) and `~/.claude/skills` (Claude Code), so **adding a skill needs no change to `home.nix`**.
+
+```mermaid
+flowchart LR
+    SK["home/.agents/skills/<br/>one directory per skill"] --> A["~/.agents/skills<br/>pi and Copilot"]
+    SK --> B["~/.claude/skills<br/>Claude Code"]
+    AG["home/AGENTS.md"] --> C["~/.pi/agent/AGENTS.md"]
+    AG --> D["~/.claude/CLAUDE.md<br/>~/.claude/AGENTS.md"]
 ```
 
-What the definition guarantees, and what `check` re-proves on the running guest:
+Vendored skills are re-copied here to update: `lavish` (MIT, from [kunchenguid/lavish-axi](https://github.com/kunchenguid/lavish-axi)), `stow`, and the pstack set (`bro`, `teach`, and the `principle-*` leaves in `software-engineering-principles/`).
 
-- **Nothing from `$HOME` is mounted.** `mounts: []`, no `portForwards` entries, no agent
-  forwarding. The only host-to-guest channel is SSH, which `limactl shell` uses. Lima adds one
-  forward of its own, host time sync on UDP 323, which is inbound-only and dropped by the
-  guest's input chain along with everything else.
-- **Agents get no root.** `agent` is created without sudo and in no privileged group, so
-  `sudo -n true`, `nft flush ruleset` and writing `/etc/nftables.conf` all fail.
-- **Egress is default-deny, and one allowlist wide.** One root-owned nftables table drops
-  everything except SSH from the host subnet and one port on the host. That port is
-  `crew-sandbox proxy`: a CONNECT proxy holding no credentials, which refuses any destination
-  [nix/crew-sandbox/egress-allow](nix/crew-sandbox/egress-allow) does not name and any port
-  other than 443 and 80. DNS is closed with the rest of the internet rather than left open as
-  a covert channel. The proxy binds `127.0.0.1`, which the guest reaches at `192.168.5.2`
-  because Lima forwards loopback to the guest's gateway, so nothing is exposed to the LAN.
-- **No agent holds a GitHub credential.** `crew-sandbox broker` mints one App installation
-  token per task, for one repository from [nix/crew-sandbox/repos-allow](nix/crew-sandbox/repos-allow),
-  with `contents` and `pull_requests` only. GitHub refuses a token for anything outside the
-  App's installation, so the scope survives a compromised caller. The App private key stays
-  in the vault and is injected at start with `av inject`, never written to disk.
-- **Bootstrap cannot reopen any of it.** Lima re-runs provision scripts on every boot, so the
-  script touches `/etc/crew-provisioned` and exits early next time, when there is no network
-  left to install from.
-
-The VM is replaced, not patched: change `lima.yaml`, then `destroy` and `up`, and run the gate
-against the new one. `crew-sandbox` is deliberately not in `home.packages`, so it never lands
-on an agent's `PATH`. The proxy runs only while you run it: `crew-sandbox proxy` in the
-foreground, or the duration of `check proxy`, which starts and stops its own.
+The engineering principles apply to every agent and task. Their leaves stay exactly as pstack ships them, including `disable-model-invocation: true`, so the local `engineering-principles` skill is the model-invocable index that routes to them, and `home/AGENTS.md` makes that index mandatory for harnesses that do not surface skills. See [ADR-0007](docs/adr/0007-engineering-principles-are-skills.md).
 
 ## Secrets
 
-Policy: every secret lives in Automic Vault. No secret in this repo, no key in
-`~/.pi/agent/settings.json`, no exported secret in `.zshrc`.
+**Policy:** every secret lives in Automic Vault. No secret in this repo, none in `~/.pi/agent/settings.json`, none exported from `.zshrc`.
 
 Code that needs a secret gets it per launch, so it is never ambient in the environment:
 
-```sh
+```bash
 av inject <name> -- command
 ```
 
-Pi reads its DeepSeek key from `DEEPSEEK_API_KEY`, and `av inject` supplies it for the life
-of one process. There is no pi hardener either, so the launch is where the key enters; the
-reasoning is in [ADR-0005](docs/adr/0005-pi-only-harness.md):
+```mermaid
+flowchart LR
+    subgraph Never["Never"]
+        N1["Secret in the repo"]
+        N2["Key in settings.json"]
+        N3["export in .zshrc"]
+    end
 
-```sh
-mate   # av inject +DEEPSEEK_API_KEY -- env FM_BACKEND=herdr pi
+    subgraph Always["Always"]
+        AV[("Automic Vault<br/>av save NAME")] --> INJ["av inject NAME -- command"]
+        INJ --> PROC["One process<br/>holds the key for its lifetime"]
+        PROC --> GONE(["Process exits, key is gone"])
+    end
 ```
 
-If a secret ever reaches git history, a stale file or a log, rotate it at the provider and
-`av save` the new value. Rewriting history is not a fix, because the old value stays
-readable wherever it was copied.
+Pi reads its DeepSeek key from `DEEPSEEK_API_KEY`, and `av inject` supplies it for the life of one process. There is no pi hardener, so the launch is where the key enters. The reasoning is in [ADR-0005](docs/adr/0005-pi-only-harness.md). `mate` expands to:
 
-## Scan findings
-
-`av scan` on 2026-11-16, and what each finding became:
-
-| Finding                                                   | Severity     | Status                                                                                                               |
-| --------------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------- |
-| `gh-cli-keychain-access`: gh token readable by `security` | HIGH         | Fixed: the isotope is declared and `av harden gh` gates the command, see manual step 5                               |
-| `git-credential-fill`: ambient helper for github.com      | HIGH         | Fixed: `~/.config/git/config` resets Apple's `osxkeychain` helper, the cached `github.com` item is gone, remotes SSH |
-| `emudhra`: CA bundled in `/usr/local/bin/node`            | HIGH         | Fixed: the stale standalone Node 22 was removed; `node` is now `nodejs_24` from this repo's profile                  |
-| `openssh`: `~/.ssh/id_ed25519` has no passphrase          | HIGH         | Manual: see step 6 above                                                                                             |
-| `sudo` without Touch ID                                   | medium       | Fixed: `security.pam.services.sudo_local.touchIdAuth` writes `/etc/pam.d/sudo_local`                                 |
-| OpenRouter key in `~/.claude/settings.json`               | not detected | Fixed: Automic Vault, injected by `mate`; that file is no longer tracked                                             |
-
-Seven medium items remain. Six are `PATH` ordering (`/opt/homebrew/bin`,
-`/opt/homebrew/sbin`, `~/.nix-profile/bin`, each reported by the shell detector and again
-by the macOS process detector), which is the ordering nix-darwin and `brew shellenv` exist
-to produce. The seventh is the `homebrew` detector flagging `/opt/homebrew` as writable by
-the current user; that one is an accepted risk, explained in
-[ADR-0003](docs/adr/0003-accepted-homebrew-writable-risk.md).
-
-npm and pnpm token detectors are present but report nothing today. If a registry token is
-ever needed, `av save` it and inject it the same way rather than writing `~/.npmrc`.
-
-## Layout
-
-```
-identity.nix        username, home directory and host, read from the environment
-tools.nix           formatters and linters, shared by home.nix and the dev shell
-crew-tools.nix      the crew's runtime CLIs, built from nix/crew-tools
-nix/crew-tools/     pins.nix (versions + hashes), builders.nix (two shapes), locks/,
-                    update.sh (the only writer of any of it)
-nix/crew-sandbox/   lima.yaml (the guest's definition), proxy.mjs + egress-allow (its only
-                    way out), broker/ + repos-allow (per-task GitHub tokens), default.nix
-                    (the crew-sandbox CLI), check.sh and checks/ (the phase gates)
-flake.nix           inputs pinned by flake.lock (nixpkgs, nix-darwin, home-manager,
-                    nix-homebrew, automic-vault/isotopes tap, pi); evaluated impurely
-configuration.nix   system: macOS defaults, fonts, homebrew taps/brews/casks
-tailscale.nix       system: the Tailscale daemon
-home.nix            user: packages, zsh, starship, link table, rendered VS Code settings
-home/               the config files (wezterm, nvim, herdr, vscode, .pi, .agents/skills, AGENTS.md)
-docs/adr/           one record per decision that is not obvious from the code
-GLOSSARY.md         shared terms
-rebuild.sh          the only entry point: fresh machine, or re-apply changes
-.githooks/check     formatter and lint module (--staged, --all)
-.githooks/pre-commit  git hook, calls check --staged
-.github/workflows/  CI that runs check --all on macOS
-.stylua.toml        Lua formatting style shared with the StyLua extension
-selene.toml         Lua lint rules (.selene/vim.yml defines Neovim globals)
-.prettierignore     generated and vendored files Prettier should skip
+```bash
+av inject +DEEPSEEK_API_KEY -- env FM_BACKEND=herdr pi
 ```
 
-`home/AGENTS.md` is the single copy of the global agent instructions. Pi reads it as
-`~/.pi/agent/AGENTS.md`; the `~/.claude/CLAUDE.md` and `~/.claude/AGENTS.md` links are kept
-for any agent that still looks there. Skills live under `home/.agents/skills`, and every
-directory there is linked one level deep into both `~/.agents/skills` (pi and Copilot) and
-`~/.claude/skills` (Claude Code), so adding a skill needs no change to `home.nix`. Skills
-vendored from elsewhere are re-copied here to update: `lavish` (MIT, from
-[kunchenguid/lavish-axi](https://github.com/kunchenguid/lavish-axi)), `stow`, and the pstack
-set (`bro`, `teach`, and the `principle-*` leaves in `software-engineering-principles/`).
+If a secret ever reaches git history, a stale file or a log, **rotate it at the provider** and `av save` the new value. Rewriting history is not a fix, because the old value stays readable wherever it was copied.
 
-The engineering principles apply to every agent and every task. Their leaves stay exactly as
-pstack ships them, including `disable-model-invocation: true`, so the local
-`engineering-principles` skill is the model-invocable index that routes to them, and
-`home/AGENTS.md` makes that index mandatory for a harness that does not surface skills. See
-[ADR-0007](docs/adr/0007-engineering-principles-are-skills.md).
+Need a new tool that uses a secret? Start it through `av inject`, not an exported variable. If a registry token is ever needed, `av save` it and inject it the same way instead of writing `~/.npmrc`.
 
-## Checks
+## Quality checks
 
-`.githooks/check` is the module; git runs it through `.githooks/pre-commit`, which passes
-`--staged`. That is also the default.
+Every commit is formatted and linted automatically, and CI runs the same checks.
 
-```sh
-.githooks/check --staged   # changed files, what the hook runs
+```mermaid
+flowchart TD
+    C(["git commit"]) --> PC[".githooks/pre-commit"]
+    PC --> CHK[".githooks/check --staged"]
+    CHK --> FMT["Format staged files<br/>nixfmt, shfmt, StyLua,<br/>Prettier, Taplo"]
+    FMT --> RS["Re-stage only files<br/>the formatters changed"]
+    RS --> LINT["Lint<br/>statix, deadnix, ShellCheck,<br/>Selene, Taplo"]
+    LINT --> OK{"Findings?"}
+    OK -- "yes" --> BLOCK(["Commit blocked"])
+    OK -- "no" --> PASS(["Commit succeeds"])
+
+    PUSH(["Push or pull request"]) --> CI[".github/workflows/checks.yml<br/>on macOS"]
+    CI --> DEV["nix develop --impure --command<br/>./.githooks/check --all"]
+    DEV --> ALL["Every tracked file<br/>plus a flake evaluation"]
+```
+
+```bash
+.githooks/check --staged   # changed files, what the hook runs (the default)
 .githooks/check --all      # every tracked file, plus a flake evaluation
 ```
 
-`--staged` formats staged files with nixfmt, shfmt, StyLua, Prettier and Taplo, then
-blocks the commit on statix, deadnix, ShellCheck, Selene or Taplo findings. It re-stages
-only the files the formatters actually changed, so unstaged hunks in a partially staged
-file stay out of the commit.
+- `--staged` leaves unstaged hunks in a partially staged file out of the commit.
+- `--all` also evaluates the flake, which catches Nix errors that formatting and linting cannot. The evaluation is skipped when `nix` is not on `PATH`.
+- CI uses the dev shell, which takes its tools from the pinned `nixpkgs` input, so CI and your machine run the same versions even before `./rebuild.sh` has installed anything.
+- `rebuild.sh` sets `core.hooksPath` for you. On any other clone, run `git config core.hooksPath .githooks`.
 
-`--all` covers every tracked file and additionally evaluates the flake, which catches Nix
-errors that formatting and linting cannot (the evaluation is skipped when `nix` is not on
-`PATH`). `.github/workflows/checks.yml` runs the same command on macOS for pushes and pull
-requests, through the dev shell:
+## Day to day cheat sheet
 
-```sh
-nix develop --impure --command ./.githooks/check --all
+| I want to...                                                     | Do this                                                                                                                                    |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Apply a change to `home.nix`, `configuration.nix` or `flake.nix` | `./rebuild.sh`                                                                                                                             |
+| Change wezterm, neovim, herdr, pi or skill configs               | Edit the file under `home/`. No rebuild                                                                                                    |
+| Change the default model                                         | Edit `home/.pi/agent/settings.json`, restart `mate`                                                                                        |
+| Change VS Code settings                                          | Edit `home/.config/vscode/settings.json`, delete `~/Library/.../settings.json` (the real file), then `./rebuild.sh`                        |
+| Change git config                                                | Edit `home.nix`, then `./rebuild.sh`                                                                                                       |
+| Update pi                                                        | `nix flake update pi`, then `./rebuild.sh`. **Do not** run `pi update pi`: the installed copy lives in the read-only store                 |
+| Update the Automic Vault tap                                     | `nix flake update automic-vault-tap`, then `./rebuild.sh`                                                                                  |
+| Add a skill                                                      | Add a directory under `home/.agents/skills`. No `home.nix` change                                                                          |
+| Add a new config file                                            | Add a `$HOME`-relative target and repo path to the link table in `home.nix` via `config.lib.file.mkOutOfStoreSymlink`, then `./rebuild.sh` |
+| Add a Homebrew app                                               | Add it to `configuration.nix`, then `./rebuild.sh`                                                                                         |
+| Remove a Homebrew app                                            | Remove it from `configuration.nix`, **and** `brew uninstall --cask <name>` (Homebrew is additive)                                          |
+| Store or rotate a secret                                         | `av save NAME`                                                                                                                             |
+| Run the checks by hand                                           | `.githooks/check --all`                                                                                                                    |
+
+## Repository layout
+
+```mermaid
+flowchart TD
+    ROOT["agentic-dev-env/"]
+
+    ROOT --> ENTRY["Entry point"]
+    ROOT --> NIX["Nix definitions"]
+    ROOT --> DOTS["Config files"]
+    ROOT --> QA["Quality"]
+    ROOT --> DOCS["Docs"]
+
+    ENTRY --> RBS["rebuild.sh"]
+
+    NIX --> ID["identity.nix<br/>user, home, host from env"]
+    NIX --> FLK["flake.nix + flake.lock<br/>pinned inputs"]
+    NIX --> CN["configuration.nix<br/>system"]
+    NIX --> TS["tailscale.nix<br/>system daemon"]
+    NIX --> HN["home.nix<br/>user + link table"]
+    NIX --> TN["tools.nix<br/>formatters and linters"]
+
+    DOTS --> HOME["home/<br/>wezterm, nvim, herdr, vscode,<br/>.pi, .agents/skills, AGENTS.md"]
+
+    QA --> GH[".githooks/check, pre-commit"]
+    QA --> WF[".github/workflows/"]
+    QA --> LNT[".stylua.toml, selene.toml,<br/>.selene/vim.yml, .prettierignore"]
+
+    DOCS --> ADR["docs/adr/"]
+    DOCS --> GL["GLOSSARY.md"]
 ```
 
-The dev shell takes its tools from the pinned `nixpkgs` input, so CI and this machine run
-the same versions even before `./rebuild.sh` has installed anything for the user.
-
-`rebuild.sh` sets `core.hooksPath`, so a clone it has run needs no setup. For anything
-else:
-
-```sh
-git config core.hooksPath .githooks
+```text
+identity.nix          username, home directory and host, read from the environment
+tools.nix             formatters and linters, shared by home.nix and the dev shell
+flake.nix             inputs pinned by flake.lock (nixpkgs, nix-darwin, home-manager,
+                      nix-homebrew, automic-vault/isotopes tap, pi); evaluated impurely
+configuration.nix     system: macOS defaults, fonts, homebrew taps/brews/casks
+tailscale.nix         system: the Tailscale daemon
+home.nix              user: packages, zsh, starship, link table, rendered VS Code settings
+home/                 the config files (wezterm, nvim, herdr, vscode, .pi, .agents/skills, AGENTS.md)
+docs/adr/             one record per decision that is not obvious from the code
+GLOSSARY.md           shared terms
+rebuild.sh            the only entry point: fresh machine, or re-apply changes
+.githooks/check       formatter and lint module (--staged, --all)
+.githooks/pre-commit  git hook, calls check --staged
+.github/workflows/    CI that runs check --all on macOS
+.stylua.toml          Lua formatting style shared with the StyLua extension
+selene.toml           Lua lint rules (.selene/vim.yml defines Neovim globals)
+.prettierignore       generated and vendored files Prettier should skip
 ```
 
-The crew VM has a separate gate, because it asserts properties of a running guest rather than
-of files: `nix run .#crew-sandbox -- check`. It stays out of `--all`, which must pass on a
-machine that has never started the VM.
+## Adapting this to your machine
 
-## Adapting
+Most of this needs no changes, because the identity is dynamic.
 
-Most of this is no longer needed, because the identity is dynamic.
+- **Another user, home or host.** Set `AGENTIC_DEV_ENV_USER`, `AGENTIC_DEV_ENV_HOME` and `AGENTIC_DEV_ENV_HOST`. `AGENTIC_DEV_ENV_HOST` names the `darwinConfigurations` attribute, not the machine hostname.
+- **Another config file.** See the [cheat sheet](#day-to-day-cheat-sheet). A file whose content Nix generates is rendered or seeded instead of linked, depending on whether the application itself writes it.
+- **Homebrew is additive.** With `homebrew.onActivation.cleanup = "none"`, `brews` and `casks` are installed and upgraded and everything else on the machine is left alone. The price: deleting an entry here does not uninstall it. Run `brew uninstall --cask <name>` (or `brew zap <name>`). See [ADR-0006](docs/adr/0006-homebrew-is-additive.md).
+- **The Automic Vault tap.** The cask is not in homebrew-cask, so its tap is a flake input (`automic-vault-tap`, `flake = false`) installed by `nix-homebrew.taps`. Taps stay mutable on purpose, and the cask entry must stay fully qualified and `trusted`. See [ADR-0001](docs/adr/0001-homebrew-taps-stay-mutable.md).
+- **A different model or provider.** Edit `home/.pi/agent/settings.json` (and the profile in `home/firstmate/crew-dispatch.json` if you change provider), then restart `mate`.
 
-- **Another user, home or host.** `AGENTIC_DEV_ENV_USER`, `AGENTIC_DEV_ENV_HOME` and
-  `AGENTIC_DEV_ENV_HOST` override the identity. `AGENTIC_DEV_ENV_HOST` names the
-  `darwinConfigurations` attribute, not
-  the machine hostname.
-- **Another config.** Add the `$HOME`-relative target and the repo path to the table in
-  `home.nix`, mapped through `config.lib.file.mkOutOfStoreSymlink`, then run
-  `./rebuild.sh`. A file whose content Nix generates is rendered or seeded instead, depending
-  on whether the application itself writes it.
-- **Homebrew is additive.** `homebrew.onActivation.cleanup = "none"`: `brews` and `casks`
-  are installed and upgraded, and everything else on the machine is left alone. The price is
-  that deleting an entry here does not uninstall it - run `brew uninstall --cask <name>`
-  (or `brew zap <name>`) when you want it gone. The reasoning is in
-  [ADR-0006](docs/adr/0006-homebrew-is-additive.md).
-- **The tap.** The Automic Vault cask is not in homebrew-cask, so its tap is a flake input
-  (`automic-vault-tap`, `flake = false`) installed by `nix-homebrew.taps`. Bump it with
-  `nix flake update automic-vault-tap`. Taps stay mutable on purpose, and the cask entry
-  must stay fully qualified and `trusted`; see
-  [ADR-0001](docs/adr/0001-homebrew-taps-stay-mutable.md).
-- **A new tool that needs a secret.** Start it through `av inject`, not from an exported
-  variable; see [Secrets](#secrets).
+## Troubleshooting
+
+| Symptom                                                        | Cause                                                            | Fix                                                                                                      |
+| -------------------------------------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `approval service is not running` from any `av` command        | The Automic Vault menu bar app is not running                    | `open -a "Automic Vault"` and leave it running                                                           |
+| `av` asks for Approval on every `mate` launch                  | The terminal has not been granted access to the key              | In the app: `DEEPSEEK_API_KEY`, then **Allow Launcher**, then WezTerm                                    |
+| **Install av CLI** refuses to install                          | `/usr/local/bin` is owned by your user                           | `sudo chown root:wheel /usr/local/bin`, then click Install again                                         |
+| `git clone` of firstmate fails with a non-empty directory      | The rebuild ran first and created `~/firstmate/config/`          | `rm -rf ~/firstmate` (it is empty of real content), then clone again                                     |
+| `rebuild.sh` stops right after starting an installer           | Xcode command line tools were missing                            | Wait for the installer, then re-run `./rebuild.sh`                                                       |
+| `rebuild.sh` refuses to link `~/.agentic-dev-env`              | `~/.agentic-dev-env` is already a real directory                 | Move or remove that directory, then re-run                                                               |
+| A config file became `<path>.hm-bak`                           | A plain file was in the way of a managed link                    | Expected. Diff it against the new link, keep what you need, delete the backup                            |
+| `mate` prints `MISSING:` lines                                 | A companion CLI is not installed                                 | Install it as in [Step 3](#step-3-install-the-companion-clis-manual-once), or approve what `mate` offers |
+| `mate` cannot clone or open PRs                                | `gh` is not hardened or healthy                                  | `av harden gh`, then `av doctor gh`                                                                      |
+| A crewmate pane exits immediately                              | `av` failed, and the wrapper stops instead of running signed out | Check the vault app is running and the launcher is allowed                                               |
+| VS Code settings changes from the repo are ignored             | VS Code owns its real settings file after the first seed         | Delete the real file and run `./rebuild.sh`                                                              |
+| `pi update pi` fails                                           | The installed copy is in the read-only store                     | `nix flake update pi`, then `./rebuild.sh`                                                               |
+| An app you removed from `configuration.nix` is still installed | Homebrew is additive                                             | `brew uninstall --cask <name>`                                                                           |
+
+## Security scan findings
+
+<details>
+<summary><code>av scan</code> on 2026-11-16, and what each finding became</summary>
+
+| Finding                                                   | Severity     | Status                                                                                                                                      |
+| --------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gh-cli-keychain-access`: gh token readable by `security` | HIGH         | Fixed: the isotope is declared and `av harden gh` gates the command (see [Step 4](#step-4-automic-vault-manual-steps-once-per-mac), item 5) |
+| `git-credential-fill`: ambient helper for github.com      | HIGH         | Fixed: `~/.config/git/config` resets Apple's `osxkeychain` helper, the cached `github.com` item is gone, remotes use SSH                    |
+| `emudhra`: CA bundled in `/usr/local/bin/node`            | HIGH         | Fixed: the stale standalone Node 22 was removed and `node` comes from Homebrew                                                              |
+| `openssh`: `~/.ssh/id_ed25519` has no passphrase          | HIGH         | Manual: see [Step 4](#step-4-automic-vault-manual-steps-once-per-mac), item 6                                                               |
+| `sudo` without Touch ID                                   | medium       | Fixed: `security.pam.services.sudo_local.touchIdAuth` writes `/etc/pam.d/sudo_local`                                                        |
+| OpenRouter key in `~/.claude/settings.json`               | not detected | Fixed: moved to Automic Vault and injected by `mate`; that file is no longer tracked                                                        |
+
+Seven medium items remain. Six are `PATH` ordering (`/opt/homebrew/bin`, `/opt/homebrew/sbin`, `~/.nix-profile/bin`, each reported by the shell detector and again by the macOS process detector), which is the ordering nix-darwin and `brew shellenv` exist to produce. The seventh is the `homebrew` detector flagging `/opt/homebrew` as writable by the current user, an accepted risk explained in [ADR-0003](docs/adr/0003-accepted-homebrew-writable-risk.md).
+
+The npm and pnpm token detectors are present but report nothing today.
+
+</details>
+
+## Design decisions (ADRs)
+
+Decisions that are not obvious from the code are recorded in [`docs/adr/`](docs/adr).
+
+| ADR                                                        | Decision                                        |
+| ---------------------------------------------------------- | ----------------------------------------------- |
+| [0001](docs/adr/0001-homebrew-taps-stay-mutable.md)        | Homebrew taps stay mutable                      |
+| [0003](docs/adr/0003-accepted-homebrew-writable-risk.md)   | Accepted risk: `/opt/homebrew` is user-writable |
+| [0004](docs/adr/0004-build-as-user-activate-as-root.md)    | Build as the user, activate as root             |
+| [0005](docs/adr/0005-pi-only-harness.md)                   | Pi is the only agent harness                    |
+| [0006](docs/adr/0006-homebrew-is-additive.md)              | Homebrew is additive, never prunes              |
+| [0007](docs/adr/0007-engineering-principles-are-skills.md) | Engineering principles are skills               |
+| [0008](docs/adr/0008-vscode-owns-its-settings.md)          | VS Code owns its settings file                  |
+
+## Glossary
+
+Shared terms (first mate, crewmate, isotope, harness, and so on) are defined in [GLOSSARY.md](GLOSSARY.md).

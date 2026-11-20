@@ -1,0 +1,89 @@
+name: crew-tools
+
+# The pins are data, so a wrong hash is the one failure that reaches a user as a
+# broken tool rather than a failed build. Two jobs keep that honest: build the
+# pinned set whenever pins or locks change, and let a schedule propose bumps that
+# a human reviews. Bumping on its own would defeat the point of pinning.
+on:
+  push:
+    paths:
+      - "nix/crew-tools/**"
+      - "crew-tools.nix"
+      - ".github/workflows/crew-tools.yml"
+  pull_request:
+    paths:
+      - "nix/crew-tools/**"
+      - "crew-tools.nix"
+      - ".github/workflows/crew-tools.yml"
+  schedule:
+    # Weekly, so the 14-day publish gate always has something eligible.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crew-tools-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v30
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/nix
+          key: crew-tools-${{ hashFiles('nix/crew-tools/pins.nix', 'nix/crew-tools/locks/**') }}
+      - name: Build the pinned set
+        # Every artifact is fetched by hash, so this proves each pin still
+        # resolves to the bytes it records. Nothing is run, only built.
+        run: nix build --impure .#crew-tools --no-link
+
+  bump:
+    # Only the scheduled run proposes bumps, and only on the default branch.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v30
+      - name: Propose bumps for every tool that passes the gates
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          changed=""
+          for tool in gh-axi chrome-devtools-axi tasks-axi quota-axi lavish-axi \
+            chrome-devtools-mcp treehouse no-mistakes; do
+            if ./nix/crew-tools/update.sh "$tool"; then
+              if ! git diff --quiet -- nix/crew-tools; then
+                changed="$changed $tool"
+              fi
+            else
+              echo "::notice::$tool not bumped (gate or build refused it)"
+              git checkout -- nix/crew-tools
+            fi
+          done
+          if [[ -z "$changed" ]]; then
+            echo "nothing eligible this week"
+            exit 0
+          fi
+          {
+            echo "Automated bump of:$changed"
+            echo
+            echo "Each tool passed update.sh: at least 14 days old, publisher checksums"
+            echo "cross-checked, npm signatures audited, npmDepsHash rebuilt, and both"
+            echo "the lock diff and \`nix build .#crew-tools\` reviewed by the script."
+          } > /tmp/body.md
+          git checkout -b "crew-tools/bump-$(date +%Y%m%d)"
+          git add -A nix/crew-tools
+          git -c user.name="github-actions[bot]" \
+            -c user.email="github-actions[bot]@users.noreply.github.com" \
+            commit -m "Bump crew tools:$changed"
+          git push origin HEAD
+          gh pr create --title "Bump crew tools:$changed" --body-file /tmp/body.md

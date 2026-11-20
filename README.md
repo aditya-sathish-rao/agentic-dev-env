@@ -69,9 +69,8 @@ from stopping it: a plain file at a managed path (an old generated `~/.config/gi
 is moved to `<path>.hm-bak` instead of aborting every link.
 
 After it finishes, open a new terminal. The Automic Vault steps below are the part that
-cannot be automated, and the crew adds its own manual steps in
-[Crew](#crew): clone firstmate before the first rebuild, install its companion CLIs, store
-its key.
+cannot be automated, and the crew adds one more in [Crew](#crew): store its key. Everything
+else the crew needs, firstmate's checkout included, is installed by `./rebuild.sh` itself.
 
 ## Day to day
 
@@ -148,13 +147,13 @@ They are not automated.
 
 ## Crew
 
-Talk to one agent, ship with a crew. `mate` starts the first mate: pi inside a manual clone
-of [firstmate](https://github.com/kunchenguid/firstmate) at `~/firstmate`. It splits a
+Talk to one agent, ship with a crew. `mate` starts the first mate: pi inside a checkout of
+your [firstmate](https://github.com/kunchenguid/firstmate) fork at `~/firstmate`. It splits a
 request into parallel tasks and spawns one crewmate per task into its own herdr tab and git
 worktree. Everything runs the same harness, pi, on DeepSeek V4.1 Flash.
 
 ```sh
-git clone https://github.com/kunchenguid/firstmate ~/firstmate   # once, before ./rebuild.sh
+./rebuild.sh   # clones firstmate at the recorded commit, installs the crew's tools
 mate
 ```
 
@@ -194,51 +193,95 @@ What is declared here, and where:
 
 ### What a rebuild automates, and what stays manual
 
-`./rebuild.sh` automates the harness and the wiring: `pi` comes from the flake input (pinned
-by `flake.lock`), herdr from Homebrew, the config files are linked
-(`~/.pi/agent/settings.json`, `~/.pi/agent/AGENTS.md`,
-`~/firstmate/config/crew-dispatch.json` and the two supervision pins), `~/.local/bin` joins
-`PATH`, and the generated `.zshrc` gains the `mate` alias.
+`./rebuild.sh` automates the harness, the crew's tools and the wiring:
+
+- **firstmate**, cloned over HTTPS at the commit recorded in
+  [home/firstmate/expected-commit](home/firstmate/expected-commit) _before_ anything links
+  into it. The clone-before-rebuild step is gone: activation always finds a repository.
+- **the crew's CLIs** from [nix/crew-tools](nix/crew-tools): the five `-axi` CLIs,
+  `chrome-devtools-mcp`, `treehouse` and `no-mistakes`, each built from its published artifact
+  and pinned by hash, plus `nodejs_24` - the one runtime they all run on.
+- **the no-mistakes daemon**, declared as a `launchd.agents` entry that points at the store
+  binary, so bumping the tool moves the daemon with it.
+- the config links (`~/.pi/agent/settings.json`, `~/.pi/agent/AGENTS.md`,
+  `~/firstmate/config/crew-dispatch.json` and the two supervision pins), `~/.local/bin` on
+  `PATH`, and the `mate` alias in the generated `.zshrc`.
 
 Homebrew no longer prunes, so the `claude-code` cask from the old harness survives a
 rebuild: `brew uninstall --cask claude-code` once. The `opencode` package needs nothing,
 because it came from nix and activation replaces the profile.
 
-It never installs, clones or updates firstmate itself. That clone at `~/firstmate` is manual
-because firstmate updates itself (`/updatefirstmate`), and it cannot install the companion
-CLIs below or store secrets. So a new machine needs these steps, in this order:
+Nothing installs a crew tool with `npm install -g` or `curl | sh` any more. The versions live
+in one data file, [nix/crew-tools/pins.nix](nix/crew-tools/pins.nix), and the binaries come
+from the Nix store. `~/firstmate/bin/fm-bootstrap.sh` still lists missing tools as `MISSING:`,
+but that is upstream text: if it ever fires, the fix is `./rebuild.sh`, not the npm or curl
+command it suggests.
 
-1. **Clone firstmate before the first rebuild.** Activation creates `~/firstmate/config/` to
-   hold the linked dispatch file, and `git clone` then refuses the non-empty directory. If the
-   rebuild ran first, `rm -rf ~/firstmate` (nothing is in it yet) and clone again.
-2. **`./rebuild.sh`** - pi, herdr, the links, `~/.local/bin` on `PATH`, `mate`.
-3. **Install the companion CLIs** (below). They are not in nixpkgs and nothing links them.
-4. **Store the key and allow the launcher** (below). `mate` injects it into the first mate,
+firstmate itself is the one tree this repo does not own outright. It updates itself with
+`/updatefirstmate`, so a rebuild reports an existing checkout's HEAD against the recorded
+commit and never moves it. It clones from the fork `aditya-sathish-rao/firstmate`, with
+upstream as a second remote. A firstmate bump is a review, not a fetch: read the upstream
+diff, merge it into the fork, then update `home/firstmate/expected-commit`.
+
+A new machine needs these steps, in this order:
+
+1. **`./rebuild.sh`** - pi, herdr, firstmate, the crew's pinned tools, Node, the daemon, the
+   links, `~/.local/bin` on `PATH`, `mate`.
+2. **Store the key and allow the launcher** (below). `mate` injects it into the first mate,
    and the pi wrapper into each crewmate.
-5. **Check `gh`.** Dispatching clones projects and opens PRs, so `av doctor gh` must report
+3. **Check `gh`.** Dispatching clones projects and opens PRs, so `av doctor gh` must report
    healthy on this machine's hardened `gh-cli` isotope before `mate` can do anything.
-6. **Run `mate`.** The first launch reports anything still missing as `MISSING:` and asks
+4. **Run `mate`.** The first launch reports anything still missing as `MISSING:` and asks
    before installing or upgrading it.
 
-Its companion CLIs are not in nixpkgs, so they are installed once by their own installers. This
-machine runs gh-axi 0.1.51, chrome-devtools-axi 0.1.46, tasks-axi 0.2.6, quota-axi 0.1.69,
-lavish-axi 0.1.97, treehouse 3.1.8 and no-mistakes v1.106.1:
+#### Bumping a crew tool
+
+Do not edit `pins.nix` by hand. Run the one writer:
 
 ```sh
-npm install -g gh-axi chrome-devtools-axi tasks-axi quota-axi lavish-axi
-gh-axi setup hooks && chrome-devtools-axi setup hooks && lavish-axi setup hooks
-curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh
-curl -fsSL https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh | sh
+./nix/crew-tools/update.sh gh-axi 0.1.52   # or with no version, the latest that passes
 ```
 
-`home.nix` puts `~/.local/bin` on `PATH`, so the treehouse and no-mistakes installers write
-there instead of asking to sudo into `/usr/local/bin`. `~/firstmate/bin/fm-bootstrap.sh`
-lists anything still missing as `MISSING:` on the next `mate`.
+It refuses a version published less than 14 days ago, cross-checks the release assets against
+the publisher's own `checksums.txt`, audits the npm signatures for the lock it generates,
+prints the lock diff, and refetches both hashes. Review the diff, then
+`./.githooks/check --all` and `./rebuild.sh`.
 
-The three `setup hooks` lines install SessionStart hooks for Claude Code, Codex, OpenCode and
-Copilot CLI. Pi is not one of those targets, so they do not reach the first mate: it gets the
-same guidance from the `lavish` skill under `~/.agents/skills`, which pi discovers, and by
-calling the `-axi` CLIs directly. Keep the lines only if you also run one of those harnesses.
+The pins this machine runs: gh-axi 0.1.51, chrome-devtools-axi 0.1.46, tasks-axi 0.2.6,
+quota-axi 0.1.69, lavish-axi 0.1.97, chrome-devtools-mcp 1.13.0, treehouse 3.1.8,
+no-mistakes 1.106.1, node 24.22.1.
+
+`treehouse update`, `no-mistakes update` and the `-axi` update subcommands try to replace
+their own read-only store binary and fail. The bump path is the command above.
+
+The three `-axi setup hooks` lines are not part of setup any more: they install SessionStart
+hooks for Claude Code, Codex, OpenCode and Copilot CLI, and pi reads skills instead, getting
+the same guidance from the `lavish` skill under `~/.agents/skills`. Run them by hand only if
+you also drive one of those harnesses.
+
+#### Removing the old copies, after a soak
+
+`~/.local/bin` comes first on `PATH` and still holds the treehouse and no-mistakes installers,
+while the five axi CLIs sit in `/opt/homebrew/bin`. Until those are deleted they shadow the
+pinned ones, so deletion is deliberately separate from the switch. Once `command -v` has been
+returning profile paths for a week:
+
+```sh
+npm uninstall -g gh-axi chrome-devtools-axi tasks-axi quota-axi lavish-axi
+rm -f ~/.local/bin/treehouse ~/.local/bin/no-mistakes
+rm -rf ~/.no-mistakes/bin
+```
+
+Then confirm every tool resolves into the profile, not the old locations:
+
+```sh
+for t in gh-axi chrome-devtools-axi tasks-axi quota-axi lavish-axi treehouse no-mistakes; do
+  printf '%s\t%s\n' "$t" "$(command -v "$t")"
+done
+```
+
+Every path should sit under `/etc/profiles/per-user/<user>/bin`. The daemon's own state in
+`~/.no-mistakes` is untouched by all three commands.
 
 Save the key once, as in [Manual steps](#manual-steps) step 3:
 
@@ -279,7 +322,7 @@ readable wherever it was copied.
 | --------------------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------- |
 | `gh-cli-keychain-access`: gh token readable by `security` | HIGH         | Fixed: the isotope is declared and `av harden gh` gates the command, see manual step 5                               |
 | `git-credential-fill`: ambient helper for github.com      | HIGH         | Fixed: `~/.config/git/config` resets Apple's `osxkeychain` helper, the cached `github.com` item is gone, remotes SSH |
-| `emudhra`: CA bundled in `/usr/local/bin/node`            | HIGH         | Fixed: the stale standalone Node 22 was removed and `node` comes from Homebrew                                       |
+| `emudhra`: CA bundled in `/usr/local/bin/node`            | HIGH         | Fixed: the stale standalone Node 22 was removed; `node` is now `nodejs_24` from this repo's profile                  |
 | `openssh`: `~/.ssh/id_ed25519` has no passphrase          | HIGH         | Manual: see step 6 above                                                                                             |
 | `sudo` without Touch ID                                   | medium       | Fixed: `security.pam.services.sudo_local.touchIdAuth` writes `/etc/pam.d/sudo_local`                                 |
 | OpenRouter key in `~/.claude/settings.json`               | not detected | Fixed: Automic Vault, injected by `mate`; that file is no longer tracked                                             |
@@ -299,6 +342,9 @@ ever needed, `av save` it and inject it the same way rather than writing `~/.npm
 ```
 identity.nix        username, home directory and host, read from the environment
 tools.nix           formatters and linters, shared by home.nix and the dev shell
+crew-tools.nix      the crew's runtime CLIs, built from nix/crew-tools
+nix/crew-tools/     pins.nix (versions + hashes), builders.nix (two shapes), locks/,
+                    update.sh (the only writer of any of it)
 flake.nix           inputs pinned by flake.lock (nixpkgs, nix-darwin, home-manager,
                     nix-homebrew, automic-vault/isotopes tap, pi); evaluated impurely
 configuration.nix   system: macOS defaults, fonts, homebrew taps/brews/casks

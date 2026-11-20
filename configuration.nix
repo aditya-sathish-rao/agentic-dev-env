@@ -83,7 +83,9 @@ in
     ];
     brews = [
       "herdr"
-      "node" # replaces the stale standalone Node 22 in /usr/local that `av scan` flags
+      # Node comes from nixpkgs (home.nix) so the crew's CLIs and their runtime
+      # are pinned together. An entry removed here is NOT uninstalled by
+      # activation (see cleanup above): `brew uninstall node` once by hand.
       # `av harden gh` needs the signed isotope, and it conflicts with upstream gh
       "automic-vault/isotopes/gh-cli"
     ];

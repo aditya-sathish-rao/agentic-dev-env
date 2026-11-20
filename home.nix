@@ -11,6 +11,11 @@ let
   # rebuild.sh links the clone here, so the repo can be cloned anywhere.
   dotfiles = "${config.home.homeDirectory}/.dotfiles";
 
+  # The crew's CLIs, pinned in nix/crew-tools. A separate seam from tools.nix so
+  # the CI dev shell does not carry a second Node runtime, and named here so the
+  # launchd agent below can point at one binary in the store.
+  crewTools = import ./crew-tools.nix { inherit pkgs; };
+
   # Every directory under home/.agents/skills is one skill or a bundle of skills,
   # so the skill links are generated and a new skill needs no edit here. Both
   # roots are linked because pi and Copilot scan ~/.agents/skills while Claude
@@ -107,6 +112,10 @@ assert lib.assertMsg (missingSources == [ ])
       ]
       # formatters and linters the checks shell out to, defined once in tools.nix
       ++ (import ./tools.nix { inherit pkgs; })
+      # The crew's CLIs and the single Node runtime they are wrapped with, so no
+      # tool here floats on an npm global or a curl | sh installer.
+      ++ builtins.attrValues crewTools
+      ++ [ nodejs_24 ]
       # The agent harness. It comes from the pi flake input rather than nixpkgs
       # because the flake pins the release and ships the Node runtime with it.
       ++ [ piPackage ];
@@ -130,6 +139,20 @@ assert lib.assertMsg (missingSources == [ ])
         '';
       };
 
+    # A generation that linked the whole ~/.config/herdr directory made the repo's
+    # own config.toml the link target, so activating the file link above wrote a
+    # store link over that file and closed a loop: ~/.config/herdr -> store -> repo
+    # -> store -> ... herdr then failed every config read with "Too many levels of
+    # symbolic links" and silently ran on defaults. Only a leftover directory
+    # symlink is replaced, because ~/.config/herdr must stay a real directory that
+    # herdr writes its sockets, logs and session snapshots into.
+    activation.herdr-config-dir = lib.hm.dag.entryBefore [ "linkGeneration" ] ''
+      if [[ -L "$HOME/.config/herdr" ]]; then
+        run rm -f "$HOME/.config/herdr"
+        run mkdir -p "$HOME/.config/herdr"
+      fi
+    '';
+
     # VS Code owns its settings once seeded, so a rebuild must not overwrite the
     # user's own edits. Only a missing file, or the old read-only store link, is
     # replaced. See ADR-0008.
@@ -141,6 +164,47 @@ assert lib.assertMsg (missingSources == [ ])
         run install -m 0644 ${vscodeSettings} "$settings"
       fi
     '';
+  };
+
+  # no-mistakes runs a background daemon, and its curl | sh installer wrote a
+  # plist pointing at ~/.no-mistakes/bin - a path a Nix bump cannot move. Owning
+  # the agent here regenerates the plist with the store path; home-manager
+  # re-bootstraps an agent whose plist changed, so a bump restarts the daemon on
+  # the new binary. The attribute name has to equal Label: home-manager boots the
+  # agent out by plist filename.
+  launchd.agents."com.kunchenguid.no-mistakes.daemon" = {
+    enable = true;
+    config = {
+      Label = "com.kunchenguid.no-mistakes.daemon";
+      ProgramArguments = [
+        "${crewTools.no-mistakes}/bin/no-mistakes"
+        "daemon"
+        "run"
+        "--root"
+        "${config.home.homeDirectory}/.no-mistakes"
+      ];
+      WorkingDirectory = "${config.home.homeDirectory}/.no-mistakes";
+      # launchd hands an agent a bare PATH. The daemon shells out to git, gh and
+      # pi, and pi's wrapper lives in ~/.local/bin.
+      EnvironmentVariables = {
+        HOME = config.home.homeDirectory;
+        PATH = lib.concatStringsSep ":" [
+          "${config.home.homeDirectory}/.local/bin"
+          "${config.home.profileDirectory}/bin"
+          "/opt/homebrew/bin"
+          "/opt/homebrew/sbin"
+          "/usr/local/bin"
+          "/usr/bin"
+          "/bin"
+          "/usr/sbin"
+          "/sbin"
+        ];
+      };
+      StandardOutPath = "${config.home.homeDirectory}/.no-mistakes/logs/daemon-launchd.log";
+      StandardErrorPath = "${config.home.homeDirectory}/.no-mistakes/logs/daemon-launchd.log";
+      RunAtLoad = true;
+      KeepAlive = true;
+    };
   };
 
   programs = {

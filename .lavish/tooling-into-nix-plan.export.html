@@ -1,0 +1,1053 @@
+<!doctype html>
+<html lang="en" data-theme="luxury">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Plan · Move the crew tooling into Nix</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.5.19/daisyui.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5.5.19/themes.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.2.4/dist/index.global.js"></script>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; }
+      :where(.grid, .flex) > * { min-width: 0; }
+      :where(p, h1, h2, h3, h4, h5, h6, li, dd, blockquote, figcaption, td, th, .badge, .label) { overflow-wrap: anywhere; }
+      :where(img, svg, video, canvas, iframe) { max-width: 100%; height: auto; }
+      figure svg { width: 100%; height: auto; display: block; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .rule { border-color: color-mix(in oklab, currentColor 12%, transparent); }
+      .tick { font-variant-numeric: tabular-nums; }
+    </style>
+  </head>
+  <body class="bg-base-100 text-base-content">
+    <main class="mx-auto max-w-6xl px-5 py-10 sm:px-8 lg:py-14">
+      <!-- ─────────────────────────── HERO ─────────────────────────── -->
+      <header class="mb-12">
+        <div class="flex flex-wrap items-center gap-2 mb-5">
+          <span class="badge badge-primary badge-soft">Plan</span>
+          <span class="badge badge-ghost">No code changed</span>
+          <span class="badge badge-ghost">agentic-dev-env @ 312235e</span>
+          <span class="badge badge-ghost">2026-11-20</span>
+        </div>
+        <h1 class="text-4xl lg:text-5xl font-bold tracking-tight max-w-4xl">
+          Move the crew tooling into Nix, and make <span class="mono text-primary">./rebuild.sh</span> own the order
+        </h1>
+        <p class="mt-4 max-w-3xl text-lg opacity-75">
+          Six npm CLIs, two <span class="mono">curl&nbsp;|&nbsp;sh</span> binaries and one self-updating clone are the last
+          things on this machine that Nix does not own. This plan pins all of them, removes the clone-before-rebuild
+          trap, and leaves firstmate as the one deliberately mutable tree with its expected commit recorded.
+        </p>
+        <div class="mt-6 grid gap-3 sm:grid-cols-3">
+          <div class="card card-border bg-base-200">
+            <div class="card-body py-4">
+              <div class="text-3xl font-bold tick">8</div>
+              <div class="text-sm opacity-70">hash-pinned artifacts: six npm CLIs, two release binaries, plus a fork-and-review gate for firstmate</div>
+            </div>
+          </div>
+          <div class="card card-border bg-base-200">
+            <div class="card-body py-4">
+              <div class="text-3xl font-bold tick">2</div>
+              <div class="text-sm opacity-70">release binaries fetched by hash instead of executed installers</div>
+            </div>
+          </div>
+          <div class="card card-border bg-base-200">
+            <div class="card-body py-4">
+              <div class="text-3xl font-bold tick">1</div>
+              <div class="text-sm opacity-70">remaining mutable checkout: firstmate, pinned at <span class="mono">427056c</span></div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <!-- ─────────────────────────── ANSWER ─────────────────────────── -->
+      <section class="mb-14">
+        <div role="alert" class="alert alert-success alert-soft items-start">
+          <div>
+            <h2 class="font-bold text-lg mb-1">The one-sentence answer</h2>
+            <p class="max-w-4xl">
+              Make <span class="mono">./rebuild.sh</span> clone firstmate from <strong>your fork</strong> at a recorded commit before it builds,
+              package the eight CLI tools as hash-pinned Nix derivations built from their published artifacts, and
+              converge on one PATH answer — with legacy copies removed only after a one-week soak.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─────────────────────────── TODAY ─────────────────────────── -->
+      <section class="mb-14">
+        <div class="flex items-baseline justify-between gap-4 mb-4">
+          <h2 class="text-2xl font-bold">1 · What is true today</h2>
+          <span class="badge badge-outline">verified on this machine</span>
+        </div>
+
+        <div class="grid gap-4 lg:grid-cols-2">
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <h3 class="card-title text-base">Three provisioning paths, none hashed</h3>
+              <ul class="space-y-2 text-sm">
+                <li class="flex gap-2"><span class="text-warning">◆</span><span><span class="mono">npm install -g</span> writes five packages into <span class="mono">/opt/homebrew/lib/node_modules</span>.</span></li>
+                <li class="flex gap-2"><span class="text-warning">◆</span><span>Two <span class="mono">curl | sh</span> installers download “latest” at run time and write into <span class="mono">~/.local/bin</span> and <span class="mono">~/.no-mistakes/bin</span>.</span></li>
+                <li class="flex gap-2"><span class="text-warning">◆</span><span><span class="mono">node</span> itself comes from Homebrew, while every other CLI dependency comes from Nix.</span></li>
+              </ul>
+              <p class="text-sm opacity-70 mt-2">
+                Nothing records which bytes the machine actually runs. The README’s version list is prose, and the
+                install commands resolve a different version on the next machine.
+              </p>
+            </div>
+          </div>
+
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <h3 class="card-title text-base">The clone has to happen first, or the script is re-run by hand</h3>
+              <p class="text-sm">
+                Home-manager links <span class="mono">firstmate/config/*</span>, so activation creates
+                <span class="mono">~/firstmate/config/</span>. A later <span class="mono">git clone</span> refuses the
+                non-empty directory. The README’s recovery is <span class="mono">rm -rf ~/firstmate</span> and clone
+                again — a manual, destructive step a script can remove.
+              </p>
+              <div class="stats stats-vertical sm:stats-horizontal bg-base-200 mt-2">
+                <div class="stat py-3"><div class="stat-title text-xs">clone size</div><div class="stat-value text-lg tick">59 MB</div><div class="stat-desc">1,204 commits</div></div>
+                <div class="stat py-3"><div class="stat-title text-xs">self-update</div><div class="stat-value text-lg">ff-only</div><div class="stat-desc">on the default branch</div></div>
+                <div class="stat py-3"><div class="stat-title text-xs">expected commit</div><div class="stat-value text-lg">unrecorded</div><div class="stat-desc">drift is invisible</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto rounded-box border rule bg-base-100 mt-4">
+          <table class="table table-sm">
+            <thead>
+              <tr><th>Tool</th><th>Version now</th><th>Source of bytes</th><th>Writes its own updates?</th><th>Runtime</th></tr>
+            </thead>
+            <tbody class="text-sm">
+              <tr><td class="mono">gh-axi</td><td class="tick">0.1.51</td><td>npm global</td><td>yes</td><td>node</td></tr>
+              <tr><td class="mono">chrome-devtools-axi</td><td class="tick">0.1.46</td><td>npm global</td><td>yes</td><td>node + MCP server</td></tr>
+              <tr><td class="mono">tasks-axi</td><td class="tick">0.2.6</td><td>npm global</td><td>yes</td><td>node</td></tr>
+              <tr><td class="mono">quota-axi</td><td class="tick">0.1.69</td><td>npm global</td><td>yes</td><td>node ≥ 22.19</td></tr>
+              <tr><td class="mono">lavish-axi</td><td class="tick">0.1.97</td><td>npm global</td><td>yes</td><td>node ≥ 22</td></tr>
+              <tr><td class="mono">treehouse</td><td class="tick">3.1.8</td><td><span class="mono">install.sh</span> → 13.4 MB Mach-O</td><td>yes</td><td>static Go</td></tr>
+              <tr><td class="mono">no-mistakes</td><td class="tick">1.106.1</td><td><span class="mono">install.sh</span> → <span class="mono">~/.no-mistakes/bin</span></td><td>yes</td><td>static Go + daemon</td></tr>
+              <tr><td class="mono">chrome-devtools-mcp</td><td class="tick">unpinned</td><td><span class="mono">npx -y chrome-devtools-mcp@latest</span></td><td>always latest</td><td>node</td></tr>
+              <tr><td class="mono">firstmate</td><td class="tick">427056c</td><td><span class="mono">git clone</span> by hand</td><td>yes, by design</td><td>bash + pi</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="grid gap-3 sm:grid-cols-2 mt-4">
+          <div class="alert alert-warning alert-soft items-start">
+            <div>
+              <div class="font-semibold text-sm">chrome-devtools-axi has a second floating dependency</div>
+              <p class="text-sm mt-1">
+                <span class="mono">bridge.js</span> probes <span class="mono">PATH</span> for
+                <span class="mono">chrome-devtools-mcp</span> first, then falls back to
+                <span class="mono">npx -y chrome-devtools-mcp@latest</span>. Today nothing puts it on
+                <span class="mono">PATH</span>, so the MCP server floats regardless of how the wrapper is installed.
+              </p>
+            </div>
+          </div>
+          <div class="alert alert-info alert-soft items-start">
+            <div>
+              <div class="font-semibold text-sm">no-mistakes runs a LaunchAgent</div>
+              <p class="text-sm mt-1">
+                The plist currently executes <span class="mono">~/.no-mistakes/bin/no-mistakes daemon run</span>. Its state
+                (<span class="mono">~/.no-mistakes</span>) is independent of the binary path, so a store binary works —
+                but the daemon must be restarted whenever the path changes.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─────────────────────────── TARGET ─────────────────────────── -->
+      <section class="mb-14">
+        <h2 class="text-2xl font-bold mb-2">2 · Target: one owner per artifact</h2>
+        <p class="max-w-3xl opacity-75 mb-5">
+          Nix owns every tool binary. Home-manager owns the profile and the link table. firstmate stays a git clone
+          because it updates itself; the repo records which commit it expects and reports drift instead of enforcing it.
+        </p>
+
+        <figure class="card card-border bg-base-100 p-4 lg:p-6">
+          <svg viewBox="0 0 960 420" role="img" aria-labelledby="own-title own-desc">
+            <title id="own-title">Today versus target ownership of crew tooling</title>
+            <desc id="own-desc">Today five independent install paths write unhashed binaries into Homebrew, the home folder and a clone. The target routes every pinned artifact through Nix into the home-manager profile, with firstmate as the only mutable checkout whose commit is reported.</desc>
+            <defs>
+              <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor" class="text-error" /></marker>
+              <marker id="arrow-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor" class="text-success" /></marker>
+            </defs>
+
+            <!-- left: today -->
+            <g>
+              <text x="24" y="28" class="fill-current" font-size="15" font-weight="700">Today</text>
+              <text x="24" y="48" class="fill-current opacity-60" font-size="12">five writers, no shared record</text>
+
+              <g font-size="12" class="fill-current">
+                <rect x="24" y="68" width="180" height="40" rx="8" fill="currentColor" opacity="0.06" />
+                <text x="36" y="86">npm registry</text><text x="36" y="100" class="opacity-60 mono" font-size="10">install -g …@latest</text>
+
+                <rect x="24" y="120" width="180" height="40" rx="8" fill="currentColor" opacity="0.06" />
+                <text x="36" y="138">treehouse install.sh</text><text x="36" y="152" class="opacity-60 mono" font-size="10">curl | sh</text>
+
+                <rect x="24" y="172" width="180" height="40" rx="8" fill="currentColor" opacity="0.06" />
+                <text x="36" y="190">no-mistakes install.sh</text><text x="36" y="204" class="opacity-60 mono" font-size="10">curl | sh</text>
+
+                <rect x="24" y="224" width="180" height="40" rx="8" fill="currentColor" opacity="0.06" />
+                <text x="36" y="242">Homebrew</text><text x="36" y="256" class="opacity-60 mono" font-size="10">node</text>
+
+                <rect x="24" y="276" width="180" height="40" rx="8" fill="currentColor" opacity="0.06" />
+                <text x="36" y="294">you</text><text x="36" y="308" class="opacity-60 mono" font-size="10">git clone firstmate</text>
+              </g>
+
+              <g stroke="currentColor" class="text-error" stroke-width="1.4" fill="none" marker-end="url(#arrow-red)">
+                <path d="M204 88 H 300" />
+                <path d="M204 140 H 300" />
+                <path d="M204 192 H 300" />
+                <path d="M204 244 H 300" />
+                <path d="M204 296 H 300" />
+              </g>
+
+              <g font-size="11">
+                <rect x="300" y="68" width="120" height="40" rx="7" fill="currentColor" opacity="0.1" />
+                <text x="312" y="92" class="fill-current mono" font-size="10">homebrew lib</text>
+
+                <rect x="300" y="120" width="120" height="40" rx="7" fill="currentColor" opacity="0.1" />
+                <text x="312" y="144" class="fill-current mono" font-size="10">~/.local/bin</text>
+
+                <rect x="300" y="172" width="120" height="40" rx="7" fill="currentColor" opacity="0.1" />
+                <text x="312" y="196" class="fill-current mono" font-size="10">~/.no-mistakes/bin</text>
+
+                <rect x="300" y="224" width="120" height="40" rx="7" fill="currentColor" opacity="0.1" />
+                <text x="312" y="248" class="fill-current mono" font-size="10">/opt/homebrew/bin</text>
+
+                <rect x="300" y="276" width="120" height="40" rx="7" fill="currentColor" opacity="0.1" />
+                <text x="312" y="300" class="fill-current mono" font-size="10">~/firstmate</text>
+              </g>
+
+              <text x="24" y="352" class="fill-current opacity-70" font-size="12">No hash is checked at install time.</text>
+              <text x="24" y="370" class="fill-current opacity-70" font-size="12">Every tool also rewrites itself on request.</text>
+              <text x="24" y="388" class="fill-current opacity-70" font-size="12">PATH order decides which copy wins.</text>
+            </g>
+
+            <line x1="470" y1="24" x2="470" y2="396" stroke="currentColor" class="opacity-15" stroke-dasharray="4 5" />
+
+            <!-- right: target -->
+            <g>
+              <text x="500" y="28" class="fill-current" font-size="15" font-weight="700">Target</text>
+              <text x="500" y="48" class="fill-current opacity-60" font-size="12">one builder, one profile, one report</text>
+
+              <g font-size="12" class="fill-current">
+                <rect x="500" y="68" width="150" height="40" rx="8" fill="currentColor" opacity="0.06" />
+                <text x="512" y="86">pins + locks</text><text x="512" y="100" class="opacity-60 mono" font-size="10">nix/crew-tools</text>
+
+                <rect x="500" y="120" width="150" height="40" rx="8" fill="currentColor" opacity="0.06" />
+                <text x="512" y="138">fetchurl</text><text x="512" y="152" class="opacity-60 mono" font-size="10">sha256 per asset</text>
+
+                <rect x="500" y="172" width="150" height="40" rx="8" fill="currentColor" opacity="0.06" />
+                <text x="512" y="190">buildNpmPackage</text><text x="512" y="204" class="opacity-60 mono" font-size="10">committed lock</text>
+
+                <rect x="500" y="224" width="150" height="40" rx="8" fill="currentColor" opacity="0.06" />
+                <text x="512" y="242">/nix/store</text><text x="512" y="256" class="opacity-60 mono" font-size="10">read-only</text>
+
+                <rect x="500" y="276" width="150" height="40" rx="8" fill="currentColor" opacity="0.06" />
+                <text x="512" y="294">home-manager profile</text><text x="512" y="308" class="opacity-60 mono" font-size="10">per-user/bin</text>
+              </g>
+
+              <g stroke="currentColor" class="text-success" stroke-width="1.4" fill="none" marker-end="url(#arrow-ok)">
+                <path d="M650 88 H 730" />
+                <path d="M650 140 H 730" />
+                <path d="M650 192 H 730" />
+                <path d="M650 244 H 730" />
+                <path d="M650 296 H 730" />
+              </g>
+
+              <g font-size="11">
+                <rect x="730" y="68" width="190" height="40" rx="7" fill="currentColor" opacity="0.1" />
+                <text x="742" y="92" class="fill-current mono" font-size="10">pins.nix + locks/</text>
+
+                <rect x="730" y="120" width="190" height="40" rx="7" fill="currentColor" opacity="0.1" />
+                <text x="742" y="144" class="fill-current mono" font-size="10">immutable source</text>
+
+                <rect x="730" y="172" width="190" height="40" rx="7" fill="currentColor" opacity="0.1" />
+                <text x="742" y="196" class="fill-current mono" font-size="10">immutable deps</text>
+
+                <rect x="730" y="224" width="190" height="40" rx="7" fill="currentColor" opacity="0.1" />
+                <text x="742" y="248" class="fill-current mono" font-size="10">one binary per tool</text>
+
+                <rect x="730" y="276" width="190" height="40" rx="7" fill="currentColor" opacity="0.1" />
+                <text x="742" y="300" class="fill-current mono" font-size="10">PATH has one answer</text>
+              </g>
+
+              <rect x="500" y="340" width="420" height="46" rx="8" fill="currentColor" opacity="0.06" />
+              <text x="514" y="358" class="fill-current" font-size="12" font-weight="600">firstmate stays mutable — by design</text>
+              <text x="514" y="375" class="fill-current opacity-70 mono" font-size="10">git clone @ 427056c · drift reported, never forced</text>
+            </g>
+          </svg>
+          <figcaption class="text-xs opacity-60 mt-2">
+            Left: every arrow is an install path with no shared integrity record. Right: the artifacts are data, the
+            builders are two shapes, and the profile is the only PATH writer.
+          </figcaption>
+        </figure>
+      </section>
+
+      <!-- ─────────────────────────── ORDERING ─────────────────────────── -->
+      <section class="mb-14">
+        <h2 class="text-2xl font-bold mb-2">3 · The ordering trap, removed by the entry point</h2>
+        <p class="max-w-3xl opacity-75 mb-5">
+          The trap is not that the clone is manual. It is that <em>activation</em> writes into the clone directory before
+          the clone exists. Move the clone into <span class="mono">rebuild.sh</span> ahead of the build and the two
+          orders collapse into one.
+        </p>
+
+        <figure class="card card-border bg-base-100 p-4 lg:p-6 mb-4">
+          <svg viewBox="0 0 960 300" role="img" aria-labelledby="ord-title ord-desc">
+            <title id="ord-title">Clone ordering before and after</title>
+            <desc id="ord-desc">Today a human must clone before rebuild, or activation creates the config directory and the later clone fails, requiring rm -rf and a re-clone. In the target, rebuild itself ensures the clone before build, so activation always finds a repository.</desc>
+            <defs>
+              <marker id="ord-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor" /></marker>
+            </defs>
+
+            <g>
+              <text x="24" y="24" class="fill-current" font-size="14" font-weight="700">Today</text>
+              <text x="24" y="42" class="fill-current opacity-60" font-size="11">two valid orders, one failure mode</text>
+
+              <g font-size="11" class="fill-current">
+                <rect x="24" y="60" width="150" height="44" rx="7" fill="currentColor" opacity="0.06" />
+                <text x="36" y="78">git clone</text><text x="36" y="94" class="opacity-60 mono" font-size="10">~ /firstmate</text>
+
+                <rect x="194" y="60" width="150" height="44" rx="7" fill="currentColor" opacity="0.06" />
+                <text x="206" y="78">./rebuild.sh</text><text x="206" y="94" class="opacity-60 mono" font-size="10">build + activate</text>
+
+                <rect x="364" y="60" width="180" height="44" rx="7" fill="currentColor" opacity="0.06" />
+                <text x="376" y="78">activation links</text><text x="376" y="94" class="opacity-60 mono" font-size="10">firstmate/config/*</text>
+
+                <rect x="564" y="60" width="150" height="44" rx="7" fill="currentColor" opacity="0.06" />
+                <text x="576" y="78">mate</text><text x="576" y="94" class="opacity-60 mono" font-size="10">works</text>
+              </g>
+
+              <g stroke="currentColor" class="text-success" stroke-width="1.4" fill="none" marker-end="url(#ord-arrow)">
+                <path d="M174 82 H 194" /><path d="M344 82 H 364" /><path d="M544 82 H 564" />
+              </g>
+
+              <g font-size="11" class="fill-current">
+                <rect x="24" y="140" width="150" height="44" rx="7" fill="currentColor" opacity="0.06" />
+                <text x="36" y="158">./rebuild.sh</text><text x="36" y="174" class="opacity-60 mono" font-size="10">runs first</text>
+
+                <rect x="194" y="140" width="150" height="44" rx="7" fill="currentColor" opacity="0.06" />
+                <text x="206" y="158">activation creates</text><text x="206" y="174" class="opacity-60 mono" font-size="10">firstmate/config</text>
+
+                <rect x="364" y="140" width="180" height="44" rx="7" fill="currentColor" opacity="0.06" />
+                <text x="376" y="158">git clone refuses</text><text x="376" y="174" class="opacity-60 mono" font-size="10">directory not empty</text>
+
+                <rect x="564" y="140" width="180" height="44" rx="7" fill="currentColor" opacity="0.06" />
+                <text x="576" y="158">rm -rf + clone</text><text x="576" y="174" class="opacity-60 mono" font-size="10">the footgun</text>
+              </g>
+
+              <g stroke="currentColor" class="text-error" stroke-width="1.4" fill="none" marker-end="url(#ord-arrow)">
+                <path d="M174 162 H 194" /><path d="M344 162 H 364" /><path d="M544 162 H 564" />
+              </g>
+
+              <text x="24" y="220" class="fill-current opacity-70" font-size="11">The human has to know the order before the first run.</text>
+            </g>
+
+            <line x1="24" y1="244" x2="936" y2="244" stroke="currentColor" class="opacity-15" stroke-dasharray="4 5" />
+
+            <g>
+              <text x="24" y="268" class="fill-current" font-size="14" font-weight="700">Target</text>
+              <text x="24" y="286" class="fill-current opacity-60" font-size="11">one path, no human ordering knowledge</text>
+
+              <g font-size="11" class="fill-current">
+                <rect x="360" y="252" width="150" height="36" rx="7" fill="currentColor" opacity="0.06" />
+                <text x="372" y="268">./rebuild.sh</text>
+
+                <rect x="530" y="252" width="170" height="36" rx="7" fill="currentColor" opacity="0.06" />
+                <text x="542" y="268">ensure clone @ pin</text>
+
+                <rect x="720" y="252" width="150" height="36" rx="7" fill="currentColor" opacity="0.06" />
+                <text x="732" y="268">build → activate</text>
+              </g>
+
+              <g stroke="currentColor" class="text-success" stroke-width="1.4" fill="none" marker-end="url(#ord-arrow)">
+                <path d="M510 270 H 530" /><path d="M700 270 H 720" />
+              </g>
+            </g>
+          </svg>
+          <figcaption class="text-xs opacity-60 mt-2">
+            The failure mode is structural: home-manager writes into a directory it does not own. The fix is to make the
+            entry point establish that directory first, not to teach the human a second command.
+          </figcaption>
+        </figure>
+
+        <div class="grid gap-4 lg:grid-cols-3">
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <h3 class="card-title text-base">1 · Existing checkout</h3>
+              <p class="text-sm"><span class="mono">git -C ~/firstmate rev-parse --git-dir</span> succeeds → touch nothing. Report HEAD versus the recorded pin.</p>
+            </div>
+          </div>
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <h3 class="card-title text-base">2 · Missing directory</h3>
+              <p class="text-sm">Clone the upstream, verify the pinned commit is an ancestor of the default branch, then <span class="mono">reset --hard</span> to it so self-update can still fast-forward.</p>
+            </div>
+          </div>
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <h3 class="card-title text-base">3 · Home-manager stub</h3>
+              <p class="text-sm">Directory exists but is not a repo. If it contains only links into the store and a <span class="mono">config/</span> of links, move it aside, clone, then remove the backup. Any real file aborts with instructions.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="alert alert-soft mt-4 items-start">
+          <div class="text-sm">
+            <strong>Why a pin and not a hard lock:</strong> <span class="mono">bin/fm-update.sh</span> fast-forwards the
+            default branch on <span class="mono">/updatefirstmate</span>. A detached HEAD or a rebuild that resets an
+            existing clone would break the workflow the clone exists for. So the pin applies at clone time only; every
+            later rebuild reports drift and does not move the tree.
+          </div>
+        </div>
+      </section>
+
+      <!-- ─────────────────────────── PACKAGING ─────────────────────────── -->
+      <section class="mb-14">
+        <h2 class="text-2xl font-bold mb-2">4 · Packaging design</h2>
+        <p class="max-w-3xl opacity-75 mb-5">
+          Two builders cover eight artifacts: an npm CLI built from its published tarball with a committed lock, and a
+          release binary fetched by hash. Versions and hashes are data in one file, so bumping a tool is one edit plus
+          the lever script.
+        </p>
+
+        <figure class="card card-border bg-base-100 p-4 lg:p-6 mb-4">
+          <svg viewBox="0 0 960 190" role="img" aria-labelledby="pipe-title pipe-desc">
+            <title id="pipe-title">npm CLI build pipeline</title>
+            <desc id="pipe-desc">A published npm tarball is fetched by sha256, paired with a committed package-lock, installed without scripts, wrapped with node 22, and exposed from the home-manager profile.</desc>
+            <defs>
+              <marker id="pipe-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor" class="text-primary" /></marker>
+            </defs>
+            <g font-size="11" class="fill-current">
+              <rect x="18" y="52" width="140" height="58" rx="8" fill="currentColor" opacity="0.06" />
+              <text x="30" y="74">registry tarball</text><text x="30" y="92" class="opacity-60 mono" font-size="10">dist/ is prebuilt</text>
+
+              <rect x="188" y="52" width="140" height="58" rx="8" fill="currentColor" opacity="0.06" />
+              <text x="200" y="74">fetchurl</text><text x="200" y="92" class="opacity-60 mono" font-size="10">sha256 of .tgz</text>
+
+              <rect x="358" y="52" width="150" height="58" rx="8" fill="currentColor" opacity="0.06" />
+              <text x="370" y="74">committed lock</text><text x="370" y="92" class="opacity-60 mono" font-size="10">locks/&lt;tool&gt;</text>
+
+              <rect x="538" y="52" width="150" height="58" rx="8" fill="currentColor" opacity="0.06" />
+              <text x="550" y="74">buildNpmPackage</text><text x="550" y="92" class="opacity-60 mono" font-size="10">npmDeps fixed hash</text>
+
+              <rect x="718" y="52" width="120" height="58" rx="8" fill="currentColor" opacity="0.06" />
+              <text x="730" y="74">store</text><text x="730" y="92" class="opacity-60 mono" font-size="10">read-only</text>
+
+              <rect x="858" y="52" width="84" height="58" rx="8" fill="currentColor" opacity="0.06" />
+              <text x="870" y="74">profile</text><text x="870" y="92" class="opacity-60 mono" font-size="10">PATH</text>
+            </g>
+            <g stroke="currentColor" class="text-primary" stroke-width="1.3" fill="none" marker-end="url(#pipe-arrow)">
+              <path d="M158 81 H 188" /><path d="M328 81 H 358" /><path d="M508 81 H 538" /><path d="M688 81 H 718" /><path d="M838 81 H 858" />
+            </g>
+            <text x="18" y="146" class="fill-current opacity-60" font-size="11">No install script runs. No registry lookup happens at build or run time.</text>
+            <text x="18" y="164" class="fill-current opacity-60" font-size="11">The wrapper adds node 22 to PATH; the bin resolves its own node_modules inside the store path.</text>
+          </svg>
+        </figure>
+
+        <div class="overflow-x-auto rounded-box border rule bg-base-100 mb-4">
+          <table class="table table-sm">
+            <thead>
+              <tr><th>Artifact</th><th>Builder</th><th>Pinned input</th><th>Integrity</th><th>Runtime wiring</th></tr>
+            </thead>
+            <tbody class="text-sm">
+              <tr>
+                <td>5 axi CLIs</td>
+                <td class="mono">buildNpmPackage</td>
+                <td>registry <span class="mono">.tgz</span> at exact version</td>
+                <td>tarball sha256 + <span class="mono">npmDepsHash</span> from committed lock</td>
+                <td>wrap bin with <span class="mono">nodejs_24</span></td>
+              </tr>
+              <tr>
+                <td><span class="mono">chrome-devtools-mcp</span></td>
+                <td class="mono">buildNpmPackage</td>
+                <td>registry <span class="mono">.tgz</span> 1.13.0 (zero deps)</td>
+                <td>tarball sha256</td>
+                <td>same node 22; discovered on PATH by the bridge</td>
+              </tr>
+              <tr>
+                <td><span class="mono">treehouse</span></td>
+                <td class="mono">releaseBinary</td>
+                <td>GitHub release asset per platform</td>
+                <td>per-system sha256</td>
+                <td>none; static Go binary</td>
+              </tr>
+              <tr>
+                <td><span class="mono">no-mistakes</span></td>
+                <td class="mono">releaseBinary</td>
+                <td>GitHub release asset per platform</td>
+                <td>per-system sha256</td>
+                <td>daemon restarted after activation</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <h3 class="card-title text-base">File shape</h3>
+<pre class="bg-base-200 rounded-box p-3 text-xs overflow-x-auto max-w-full"><code class="block whitespace-pre-wrap break-words">nix/crew-tools/
+  pins.nix          versions + per-system hashes (data, the only bump surface)
+  builders.nix      npmCli and releaseBinary (two shapes, no per-tool copies)
+  default.nix       reads pins.nix, returns the package list
+  locks/&lt;tool&gt;/     generated package-lock.json, one per npm CLI
+  update.sh         bump version → regenerate lock → refetch both hashes
+crew-tools.nix      the one list home.nix imports (beside tools.nix)</code></pre>
+              <p class="text-sm opacity-70 mt-2">
+                <span class="mono">tools.nix</span> stays the dev-shell/formatter seam. The crew tools are a different
+                seam: runtime user packages, darwin-only, and a 30 MB+ download the CI dev shell should not carry.
+              </p>
+            </div>
+          </div>
+
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <h3 class="card-title text-base">Lock policy</h3>
+              <ul class="text-sm space-y-2">
+                <li><strong>Source of truth</strong> is the published tarball users would get, not a repo build.</li>
+                <li><strong>Generated once</strong> with <span class="mono">npm install --package-lock-only --ignore-scripts</span>; the lock records resolved URLs and integrity.</li>
+                <li><strong>Pure at build</strong>: <span class="mono">fetchNpmDeps</span> gets the lock via <span class="mono">postPatch</span>; both the tarball and the dependency cache are fixed-output.</li>
+                <li><strong>No rebuild</strong>: <span class="mono">dontNpmBuild = true</span>; the tarball already ships <span class="mono">dist/</span>.</li>
+                <li><strong>No scripts</strong>: <span class="mono">--ignore-scripts --omit=dev</span>. Verified: all five CLIs print their version from this install.</li>
+              </ul>
+              <div class="alert alert-success alert-soft mt-2 py-2 text-xs">
+                Probe result: tarball → generated lock → <span class="mono">npm ci --omit=dev --ignore-scripts</span> →
+                <span class="mono">--version</span> succeeded for gh-axi, chrome-devtools-axi, tasks-axi, quota-axi and
+                lavish-axi.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto rounded-box border rule bg-base-100 mt-4">
+          <table class="table table-sm">
+            <thead>
+              <tr><th>Pin</th><th>Version</th><th>Why this version</th></tr>
+            </thead>
+            <tbody class="text-sm">
+              <tr><td class="mono">gh-axi</td><td class="tick">0.1.51</td><td>What this machine and the README already validate; 0.1.52 is a separate bump</td></tr>
+              <tr><td class="mono">chrome-devtools-axi</td><td class="tick">0.1.46</td><td>Current installed version</td></tr>
+              <tr><td class="mono">tasks-axi</td><td class="tick">0.2.6</td><td>Current installed version</td></tr>
+              <tr><td class="mono">quota-axi</td><td class="tick">0.1.69</td><td>Current; needs node ≥ 22.19</td></tr>
+              <tr><td class="mono">lavish-axi</td><td class="tick">0.1.97</td><td>Current installed version</td></tr>
+              <tr><td class="mono">chrome-devtools-mcp</td><td class="tick">1.13.0</td><td>Replaces <span class="mono">@latest</span>; zero dependencies</td></tr>
+              <tr><td class="mono">treehouse</td><td class="tick">3.1.8</td><td>Supports <span class="mono">get --lease</span>, firstmate’s floor</td></tr>
+              <tr><td class="mono">no-mistakes</td><td class="tick">1.106.1</td><td>Above firstmate’s 1.46.0 floor</td></tr>
+              <tr><td class="mono">node</td><td class="tick">22.23.4</td><td>One runtime satisfies every engine constraint</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ─────────────────────────── REVIEW CHANGES ─────────────────────────── -->
+      <section class="mb-14">
+        <div class="flex items-baseline justify-between gap-4 mb-4">
+          <h2 class="text-2xl font-bold">5 · Changes from review</h2>
+          <span class="badge badge-primary badge-soft">9 changes folded in</span>
+        </div>
+        <p class="max-w-3xl opacity-75 mb-5">
+          The design was approved with changes. This section records each one, what was checked, and where it lands in
+          the rollout. Facts that were questioned are marked with the command that verified them.
+        </p>
+
+        <div class="grid gap-4 lg:grid-cols-2">
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <h3 class="card-title text-base">1 · Hashes prove stability, not provenance</h3>
+              <p class="text-sm">
+                <span class="mono">update.sh</span> gains three gates before it writes a pin:
+              </p>
+              <ul class="text-sm list-disc list-inside space-y-1 mt-1">
+                <li>Refuse a version published in the last 14 days. Exact publish times come from <span class="mono">npm view &lt;pkg&gt; time --json</span> and the GitHub release timestamp.</li>
+                <li>Cross-check the Go binaries against the release <span class="mono">checksums.txt</span> (verified: both repos publish SHA-256 for all six platforms). For npm, run <span class="mono">npm audit signatures</span> in the lock directory.</li>
+                <li>Print the lock diff on every bump so transitive changes are reviewed, not just the top-level version.</li>
+              </ul>
+              <div class="alert alert-info alert-soft py-2 mt-2 text-xs">
+                Verified: <span class="mono">npm audit signatures</span> on a generated lock reports verified registry
+                signatures and SLSA attestations for the transitive deps. It cannot attest the top-level tarball itself
+                (no <span class="mono">dist.integrity</span> inside the tarball), so the tarball sha256 remains a separate pin.
+              </div>
+            </div>
+          </div>
+
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <h3 class="card-title text-base">2 · firstmate: fork and review</h3>
+              <p class="text-sm">
+                D3 stays <em>report only</em> for rebuild. Separately, the clone source becomes
+                <span class="mono">https://github.com/aditya-sathish-rao/firstmate</span> (fork does not exist yet — create it
+                in Unit 1). <span class="mono">/updatefirstmate</span> still fast-forwards, but to your fork. Upstream is
+                added as a second remote; a bump means reading the upstream diff, merging into the fork, then updating.
+              </p>
+              <p class="text-sm opacity-70 mt-2">
+                The recorded pin is the fork commit. Rebuild reports drift against it; it never moves the tree.
+              </p>
+            </div>
+          </div>
+
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <h3 class="card-title text-base">3 · Declare the LaunchAgent in home-manager</h3>
+              <p class="text-sm">
+                Replace the guarded activation restart with
+                <span class="mono">launchd.agents."com.kunchenguid.no-mistakes.daemon"</span> in
+                <span class="mono">home.nix</span>, pointing at the store binary. The plist then updates with every bump
+                and the GC hazard disappears.
+              </p>
+              <div class="alert alert-warning alert-soft py-2 mt-2 text-xs">
+                Checked: the binary manages a plist named
+                <span class="mono">com.kunchenguid.no-mistakes.daemon.&lt;hash&gt;.plist</span> via
+                <span class="mono">daemon start/uninstall</span>. Home-manager must own that exact label; the installer’s
+                managed service is uninstalled once in Unit 3, before the launchd agent is activated. If the binary
+                rewrites it on <span class="mono">daemon restart</span>, the agent is reloaded from the store path after
+                each bump and the check in Unit 3 catches a mismatch.
+              </div>
+            </div>
+          </div>
+
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <h3 class="card-title text-base">4 · Real offline command, not just <span class="mono">--version</span></h3>
+              <p class="text-sm">
+                Unit 2 runs a real operation with <span class="mono">npm_config_offline=true</span> and a dead registry:
+                <span class="mono">gh-axi --help</span>, <span class="mono">tasks-axi --help</span>,
+                <span class="mono">lavish-axi --help</span>, <span class="mono">chrome-devtools-axi open &lt;local file&gt;</span>
+                (with the MCP server from the store), and <span class="mono">no-mistakes doctor</span>.
+              </p>
+              <p class="text-sm opacity-70 mt-2">
+                Update checks are disabled in the environment: <span class="mono">TREEHOUSE_NO_UPDATE_CHECK=1</span> and
+                <span class="mono">NO_MISTAKES_NO_UPDATE_CHECK=1</span> (both verified as real env vars in the binaries).
+                The axi CLIs have no update-check env var; their <span class="mono">update</span> subcommands are explicit,
+                not background. Any nag observed in the offline run is recorded and disabled if a setting exists.
+              </p>
+            </div>
+          </div>
+
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <h3 class="card-title text-base">5 · Pins cover Linux</h3>
+              <p class="text-sm">
+                <span class="mono">pins.nix</span> carries per-system hashes for
+                <span class="mono">aarch64-darwin</span>, <span class="mono">x86_64-darwin</span>,
+                <span class="mono">aarch64-linux</span> and <span class="mono">x86_64-linux</span>. Verified: both release
+                repos publish checksums for all four. The npm CLIs are platform-independent. The same set feeds a Linux
+                sandbox image; building it on a Mac needs a Linux builder (nix-darwin supports one).
+              </p>
+            </div>
+          </div>
+
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <h3 class="card-title text-base">6 · Clone over HTTPS</h3>
+              <p class="text-sm">
+                <span class="mono">rebuild.sh</span> clones the fork over HTTPS. On a fresh machine the SSH key and
+                Automic Vault are not set up yet; a public repo needs no credentials. The fork must be public, or the
+                clone step moves after the vault setup — that tradeoff is explicit in the ADR.
+              </p>
+            </div>
+          </div>
+
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <h3 class="card-title text-base">7 · Split Unit 3: switch, then soak, then delete</h3>
+              <p class="text-sm">
+                Unit 3a switches PATH and the launchd agent in one rebuild. Unit 3b is a separate, manual step after a
+                one-week soak: remove the npm globals, <span class="mono">~/.local/bin/treehouse</span>,
+                <span class="mono">~/.local/bin/no-mistakes</span> and the old <span class="mono">~/.no-mistakes/bin</span>.
+                Deletion is the hard part to undo, so it gets its own check.
+              </p>
+            </div>
+          </div>
+
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <h3 class="card-title text-base">8 · CI builds pins, and bumps are proposed</h3>
+              <p class="text-sm">
+                Add a macOS job that builds <span class="mono">.#crew-tools</span> when pins or locks change, with
+                <span class="mono">actions/cache</span> on <span class="mono">~/.cache/nix</span>. A scheduled workflow
+                runs <span class="mono">update.sh</span> and opens a bump PR; the 14-day gate and lock diff make that PR
+                reviewable. <span class="mono">check --all</span> still evaluates the fetch expressions on every push.
+              </p>
+            </div>
+          </div>
+
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <h3 class="card-title text-base">9 · Keep the repo out of agent reach</h3>
+              <p class="text-sm">
+                The Linux sandbox image does not mount the dotfiles repo. <span class="mono">update.sh</span> runs outside
+                any sandbox, by a human. Otherwise an agent could edit its own pins — the exact failure mode this plan
+                exists to remove.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="alert alert-success alert-soft mt-4 items-start">
+          <div class="text-sm">
+            <strong>Node 22 EOL, checked:</strong> the Node release schedule puts 22 (Jod) in maintenance since
+            2025-10-21 and at end-of-life on <strong>2027-04-30</strong> — spring 2027, as you recalled. All engine floors
+            are satisfied by 24 (Krypton, EOL 2028-04-30), which is available in the pinned nixpkgs as
+            <span class="mono">nodejs_24</span> 24.22.1. D4 is revised to <strong>nodejs_24</strong>, with a scheduled
+            move to 26 before 24’s EOL.
+          </div>
+        </div>
+      </section>
+
+      <!-- ─────────────────────────── ROLLOUT ─────────────────────────── -->
+      <section class="mb-14">
+        <h2 class="text-2xl font-bold mb-2">6 · Rollout in verifiable units</h2>
+        <p class="max-w-3xl opacity-75 mb-5">
+          Each unit ends in a state that can be checked before the next starts. Unit 3 is split: the switch happens in one
+          rebuild, and legacy copies are removed only after a one-week soak.
+        </p>
+
+        <ul class="space-y-4">
+          <li class="card card-border bg-base-100">
+            <div class="card-body">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="badge badge-primary badge-soft">Unit 1</span>
+                <h3 class="card-title text-base">rebuild owns the clone</h3>
+                <span class="badge badge-ghost badge-sm ml-auto">script only</span>
+              </div>
+              <p class="text-sm">
+                Create the public fork <span class="mono">aditya-sathish-rao/firstmate</span> and add
+                <span class="mono">home/firstmate/expected-commit</span> (427056c…). In <span class="mono">rebuild.sh</span>,
+                after the Xcode check and before <span class="mono">nix build</span>, ensure the clone exists over HTTPS and
+                report drift. Implement the three states above; never <span class="mono">rm -rf</span> a tree with real files.
+              </p>
+              <div class="grid gap-2 sm:grid-cols-3 mt-2 text-xs">
+                <div class="rounded-box bg-base-200 p-2"><strong>Check A</strong><br />Existing clone: <span class="mono">rev-parse HEAD</span> is identical before and after.</div>
+                <div class="rounded-box bg-base-200 p-2"><strong>Check B</strong><br />Temp <span class="mono">$HOME</span>: clone lands on the pin, on <span class="mono">main</span>, clean.</div>
+                <div class="rounded-box bg-base-200 p-2"><strong>Check C</strong><br />Temp <span class="mono">$HOME</span> with a link-only stub: moved aside, cloned, backup removed.</div>
+              </div>
+            </div>
+          </li>
+
+          <li class="card card-border bg-base-100">
+            <div class="card-body">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="badge badge-primary badge-soft">Unit 2</span>
+                <h3 class="card-title text-base">package the eight artifacts</h3>
+                <span class="badge badge-ghost badge-sm ml-auto">build only</span>
+              </div>
+              <p class="text-sm">
+                Add <span class="mono">nix/crew-tools</span>, the committed locks and <span class="mono">crew-tools.nix</span>.
+                Expose the set as a flake package so it can be built without switching the system.
+              </p>
+              <div class="alert alert-soft py-2 mt-2 text-xs">
+                <span class="mono">nix build --impure .#crew-tools</span> → <span class="mono">./result/bin/gh-axi --version</span> = 0.1.51,
+                and the same for all five; <span class="mono">./result/bin/chrome-devtools-mcp --version</span> = 1.13.0;
+                <span class="mono">./result/bin/treehouse get --help | grep -- --lease</span> is non-empty;
+                <span class="mono">./result/bin/no-mistakes --version</span> = 1.106.1.
+              </div>
+              <p class="text-sm opacity-70 mt-2">
+                Run real commands (not just <span class="mono">--version</span>) under
+                <span class="mono">npm_config_offline=true npm_config_registry=http://127.0.0.1:1</span>, with
+                <span class="mono">TREEHOUSE_NO_UPDATE_CHECK=1</span> and
+                <span class="mono">NO_MISTAKES_NO_UPDATE_CHECK=1</span>. Build the Linux set with a Linux builder and
+                verify the four-system hash table.
+              </p>
+            </div>
+          </li>
+
+          <li class="card card-border bg-base-100">
+            <div class="card-body">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="badge badge-primary badge-soft">Unit 3</span>
+                <h3 class="card-title text-base">switch PATH, restart the daemon, delete the legacy copies</h3>
+                <span class="badge badge-ghost badge-sm ml-auto">rebuild, then one-week soak</span>
+              </div>
+              <p class="text-sm">
+                <strong>3a — switch.</strong> Add <span class="mono">crew-tools.nix</span> to
+                <span class="mono">home.packages</span>; add <span class="mono">nodejs_24</span>; remove the
+                <span class="mono">node</span> brew. Declare the no-mistakes LaunchAgent in
+                <span class="mono">launchd.agents</span> pointing at the store binary, and uninstall the old managed
+                service first. Rebuild. Confirm <span class="mono">doctor</span> reports the daemon running from the
+                store path and every <span class="mono">command -v</span> resolves into the per-user profile.
+              </p>
+              <p class="text-sm mt-2">
+                <strong>3b — delete, after a week.</strong> Only after the new PATH and agent have soaked for seven days:
+                remove <span class="mono">~/.local/bin/treehouse</span>,
+                <span class="mono">~/.local/bin/no-mistakes</span>, the five npm globals and the old
+                <span class="mono">~/.no-mistakes/bin</span>. Re-run the <span class="mono">command -v</span> check.
+              </p>
+              <div class="alert alert-warning alert-soft py-2 mt-2 text-xs">
+                The LaunchAgent currently points at <span class="mono">~/.no-mistakes/bin/no-mistakes</span>. The
+                declarative agent replaces it before the soak; deletion in 3b is safe only after that replacement is
+                confirmed.
+              </div>
+            </div>
+          </li>
+
+          <li class="card card-border bg-base-100">
+            <div class="card-body">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="badge badge-primary badge-soft">Unit 4</span>
+                <h3 class="card-title text-base">record the decision and remove the instructions</h3>
+                <span class="badge badge-ghost badge-sm ml-auto">docs</span>
+              </div>
+              <p class="text-sm">
+                Add <span class="mono">docs/adr/0009-crew-tooling-is-nix-owned.md</span>. Rewrite the Crew setup: no clone
+                step, no <span class="mono">npm install -g</span>, no <span class="mono">curl | sh</span>, no
+                <span class="mono">rm -rf</span> recovery. Point updates at <span class="mono">nix/crew-tools/pins.nix</span>
+                and <span class="mono">update.sh</span>. Update the layout map and the scan-findings note that says node
+                comes from Homebrew.
+              </p>
+              <p class="text-sm opacity-70 mt-2">
+                Add the pins-change build job and the scheduled bump PR. Keep the sandbox image free of the dotfiles repo and run
+                <span class="mono">update.sh</span> outside it. Run <span class="mono">./.githooks/check --all</span>.
+              </p>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <!-- ─────────────────────────── VERIFICATION ─────────────────────────── -->
+      <section class="mb-14">
+        <h2 class="text-2xl font-bold mb-2">7 · Proof, not assertion</h2>
+        <p class="max-w-3xl opacity-75 mb-4">
+          The plan is only done when the real artifacts answer these questions. Each check is a command with a literal
+          expected result, not “it builds”.
+        </p>
+        <div class="grid gap-4 lg:grid-cols-2">
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <h3 class="card-title text-base">Versions and provenance</h3>
+<pre class="bg-base-200 rounded-box p-3 text-xs overflow-x-auto"><code>for t in gh-axi chrome-devtools-axi tasks-axi \
+         quota-axi lavish-axi treehouse no-mistakes; do
+  printf '%s\t' "$t"; command -v "$t"; "$t" --version | head -1
+done</code></pre>
+              <p class="text-xs opacity-70">Expected: every path under <span class="mono">/etc/profiles/per-user/&lt;user&gt;/bin</span>, versions equal to the pins table.</p>
+            </div>
+          </div>
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <h3 class="card-title text-base">No floating runtime fetch</h3>
+<pre class="bg-base-200 rounded-box p-3 text-xs overflow-x-auto"><code>npm_config_offline=true \
+npm_config_registry=http://127.0.0.1:1 \
+  gh-axi --version</code></pre>
+              <p class="text-xs opacity-70">Expected: success for a real command (<span class="mono">gh-axi --help</span>, <span class="mono">chrome-devtools-axi open &lt;local file&gt;</span>, <span class="mono">no-mistakes doctor</span>). <span class="mono">ps</span> must show the MCP server from the store path, not an npx child. No update-check traffic.</p>
+            </div>
+          </div>
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <h3 class="card-title text-base">Daemon uses the new binary</h3>
+<pre class="bg-base-200 rounded-box p-3 text-xs overflow-x-auto"><code>no-mistakes doctor
+ps -o command= -p "$(cat ~/.no-mistakes/daemon.pid)"</code></pre>
+              <p class="text-xs opacity-70">Expected: <span class="mono">daemon running</span>, the command contains the profile path, and <span class="mono">launchctl print gui/$UID/com.kunchenguid.no-mistakes.daemon</span> shows the store path.</p>
+            </div>
+          </div>
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <h3 class="card-title text-base">Ordering is idempotent</h3>
+<pre class="bg-base-200 rounded-box p-3 text-xs overflow-x-auto"><code>./rebuild.sh; ./rebuild.sh
+git -C ~/firstmate rev-parse HEAD</code></pre>
+              <p class="text-xs opacity-70">Expected: second run touches nothing; HEAD unchanged on an existing clone; output reports <span class="mono">HEAD == expected</span>.</p>
+            </div>
+          </div>
+        </div>
+        <div class="alert alert-success alert-soft mt-4 items-start">
+          <div class="text-sm">
+            <strong>Gate:</strong> <span class="mono">./.githooks/check --all</span> must finish with 0 errors and 0 warnings
+            after each unit. It formats and lints the new Nix files and evaluates the flake, which now includes every
+            pin’s fetch expression.
+          </div>
+        </div>
+      </section>
+
+      <!-- ─────────────────────────── RISKS ─────────────────────────── -->
+      <section class="mb-14">
+        <h2 class="text-2xl font-bold mb-2">8 · Failure modes and how the plan handles them</h2>
+        <div class="overflow-x-auto rounded-box border rule bg-base-100">
+          <table class="table table-sm">
+            <thead>
+              <tr><th class="w-52">Failure</th><th>Why it happens</th><th class="w-72">Mitigation in this plan</th></tr>
+            </thead>
+            <tbody class="text-sm">
+              <tr>
+                <td>Self-update commands hit a read-only store</td>
+                <td><span class="mono">treehouse update</span>, <span class="mono">no-mistakes update</span> and the axi <span class="mono">update</span> subcommands expect to replace their own binary.</td>
+                <td>Wrap the two Go binaries so <span class="mono">update</span> prints the Nix bump path; document it in the ADR. firstmate keeps its self-update.</td>
+              </tr>
+              <tr>
+                <td>Daemon keeps an old path after a bump</td>
+                <td>The LaunchAgent embeds the executable path; GC can collect the old store path.</td>
+                <td>Restart in <span class="mono">home.activation</span> after links; verify the PID’s command line; uninstall the legacy service once.</td>
+              </tr>
+              <tr>
+                <td>PATH still answers with an old copy</td>
+                <td><span class="mono">~/.local/bin</span> is prepended; npm globals sit in <span class="mono">/opt/homebrew/bin</span>.</td>
+                <td>Unit 3 deletes both legacy locations and asserts every <span class="mono">command -v</span> resolves into the profile.</td>
+              </tr>
+              <tr>
+                <td>Firstmate reports wrong install instructions</td>
+                <td>Its <span class="mono">fm-bootstrap.sh</span> suggests npm/curl commands when a tool is missing; the repo cannot edit a self-updating upstream.</td>
+                <td>Tools are always on PATH, so the branch is not reached; README states that the suggestion is upstream text and the fix is <span class="mono">./rebuild.sh</span>.</td>
+              </tr>
+              <tr>
+                <td>Lock regeneration becomes hand-edited drift</td>
+                <td>The published tarballs ship no lockfile; locks are generated at maintainer time.</td>
+                <td><span class="mono">update.sh</span> is the only writer: bump, relock, rehash, run the gate. Committed locks plus fixed-output hashes keep builds pure.</td>
+              </tr>
+              <tr>
+                <td>Upstream deletes a release asset</td>
+                <td>Go binaries are fetched from GitHub releases; npm tarballs from the registry.</td>
+                <td>Fetch failure is loud at build time, never a silent version change. Re-pin to a live asset; optionally mirror later.</td>
+              </tr>
+              <tr>
+                <td>firstmate upstream is compromised</td>
+                <td><span class="mono">/updatefirstmate</span> fast-forwards to whatever upstream pushes.</td>
+                <td>Clone from your fork; read the upstream diff before merging into the fork. Rebuild reports drift only.</td>
+              </tr>
+              <tr>
+                <td>LaunchAgent fights home-manager</td>
+                <td>no-mistakes manages its own plist via <span class="mono">daemon start/uninstall</span>.</td>
+                <td>Uninstall the managed service once; home-manager owns the exact label thereafter. Verify with <span class="mono">launchctl print</span>.</td>
+              </tr>
+              <tr>
+                <td>Legacy copy shadows the profile</td>
+                <td><span class="mono">~/.local/bin</span> is prepended on PATH.</td>
+                <td>One-week soak before deletion; <span class="mono">command -v</span> assertion in both 3a and 3b.</td>
+              </tr>
+              <tr>
+                <td>An agent edits its own pins</td>
+                <td>A sandboxed crewmate with the repo mounted can write <span class="mono">pins.nix</span>.</td>
+                <td>Never mount the dotfiles repo in the sandbox; <span class="mono">update.sh</span> runs outside it, by a human.</td>
+              </tr>
+              <tr>
+                <td>Chrome itself is still undeclared</td>
+                <td><span class="mono">chrome-devtools-mcp</span> drives an installed Chrome; packaging the server does not package the browser.</td>
+                <td>Out of scope, stated explicitly. The MCP server version is pinned; the browser remains a cask/manual dependency.</td>
+              </tr>
+              <tr>
+                <td>Removing brew node triggers an <span class="mono">av scan</span> finding</td>
+                <td>The stale <span class="mono">/usr/local/bin/node</span> was the original finding; brew node replaced it.</td>
+                <td><span class="mono">nodejs_24</span> lands in the profile before the brew formula is removed; re-run <span class="mono">av scan</span> in Unit 3.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ─────────────────────────── DECISIONS ─────────────────────────── -->
+      <section class="mb-14">
+        <h2 class="text-2xl font-bold mb-2">9 · Decisions I need from you</h2>
+        <p class="max-w-3xl opacity-75 mb-4">
+          Recommendations are marked. These are not form controls — annotate a card, or reply with the decision letter, to change one before implementation.
+        </p>
+
+        <div class="grid gap-4 lg:grid-cols-2">
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <div class="flex items-center gap-2">
+                <span class="badge badge-primary badge-soft">D1</span>
+                <h3 class="card-title text-base">Where the crew-tool seam lives</h3>
+              </div>
+              <div class="space-y-2 text-sm mt-1">
+                <div class="flex gap-2 items-start"><span class="mt-1 inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-success bg-success"></span><span><strong>Separate <span class="mono">crew-tools.nix</span></strong> <span class="badge badge-success badge-xs">recommended</span><br /><span class="opacity-70">Keeps the CI dev shell fast and darwin-independent; two seams, each with a real adapter.</span></span></div>
+                <div class="flex gap-2 items-start"><span class="mt-1 inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-base-content/30"></span><span><strong>Extend <span class="mono">tools.nix</span></strong><br /><span class="opacity-70">One list, but every <span class="mono">nix develop</span> downloads 30 MB+ of runtime tools and the shell becomes darwin-only.</span></span></div>
+                <div class="flex gap-2 items-start"><span class="mt-1 inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-base-content/30"></span><span><strong>Inline in <span class="mono">home.nix</span></strong><br /><span class="opacity-70">Fewest files, no seam, and the derivation detail leaks into the user module.</span></span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <div class="flex items-center gap-2">
+                <span class="badge badge-primary badge-soft">D2</span>
+                <h3 class="card-title text-base">The three <span class="mono">setup hooks</span> lines</h3>
+              </div>
+              <div class="space-y-2 text-sm mt-1">
+                <div class="flex gap-2 items-start"><span class="mt-1 inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-success bg-success"></span><span><strong>Drop them from the setup path</strong> <span class="badge badge-success badge-xs">recommended</span><br /><span class="opacity-70">The crew is pi-only (ADR-0005); pi reads skills, not SessionStart hooks. They write agent-owned files outside Nix.</span></span></div>
+                <div class="flex gap-2 items-start"><span class="mt-1 inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-base-content/30"></span><span><strong>Keep as an opt-in note</strong><br /><span class="opacity-70">You still use Copilot CLI; run the three commands once, manually, after rebuild.</span></span></div>
+                <div class="flex gap-2 items-start"><span class="mt-1 inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-base-content/30"></span><span><strong>Manage the hook files in home-manager</strong><br /><span class="opacity-70">Fully declarative, but couples this repo to three other harnesses’ config formats.</span></span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <div class="flex items-center gap-2">
+                <span class="badge badge-primary badge-soft">D3</span>
+                <h3 class="card-title text-base">What rebuild does when firstmate drifted</h3>
+              </div>
+              <div class="space-y-2 text-sm mt-1">
+                <div class="flex gap-2 items-start"><span class="mt-1 inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-success bg-success"></span><span><strong>Report only, plus fork-and-review</strong> <span class="badge badge-success badge-xs">recommended</span><br /><span class="opacity-70">Rebuild reports drift; self-update fast-forwards to your fork after you read the upstream diff. A failing rebuild after <span class="mono">/updatefirstmate</span> would be a new trap.</span></span></div>
+                <div class="flex gap-2 items-start"><span class="mt-1 inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-base-content/30"></span><span><strong>Fail until the pin is bumped</strong><br /><span class="opacity-70">Strongest reproducibility, but blocks the documented update workflow.</span></span></div>
+                <div class="flex gap-2 items-start"><span class="mt-1 inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-base-content/30"></span><span><strong>Fast-forward on every rebuild</strong><br /><span class="opacity-70">Keeps the machine fresh, but rebuild now performs a network update the user did not ask for.</span></span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card card-border bg-base-100">
+            <div class="card-body">
+              <div class="flex items-center gap-2">
+                <span class="badge badge-primary badge-soft">D4</span>
+                <h3 class="card-title text-base">Brew <span class="mono">node</span> → Nix Node</h3>
+              </div>
+              <div class="space-y-2 text-sm mt-1">
+                <div class="flex gap-2 items-start"><span class="mt-1 inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-success bg-success"></span><span><strong>Replace with <span class="mono">nodejs_24</span></strong> <span class="badge badge-success badge-xs">recommended</span><br /><span class="opacity-70">24.22.1 satisfies every engine floor and is LTS until 2028-04-30; 22 ends 2027-04-30. Schedule a move to 26 before then.</span></span></div>
+                <div class="flex gap-2 items-start"><span class="mt-1 inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-base-content/30"></span><span><strong>Keep brew node alongside</strong><br /><span class="opacity-70">Less churn, but two runtimes and PATH order decide which one the crew sees.</span></span></div>
+              </div>
+              <div class="alert alert-info alert-soft py-2 mt-2 text-xs">
+                Node release schedule (<span class="mono">nodejs/Release/schedule.json</span>): 22 maintenance 2025-10-21, EOL 2027-04-30; 24 maintenance 2026-10-20, EOL 2028-04-30; 26 EOL 2029-04-30.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─────────────────────────── FILES ─────────────────────────── -->
+      <section class="mb-14">
+        <h2 class="text-2xl font-bold mb-2">10 · Files touched</h2>
+        <div class="overflow-x-auto rounded-box border rule bg-base-100">
+          <table class="table table-sm">
+            <thead><tr><th>Path</th><th>Change</th></tr></thead>
+            <tbody class="text-sm">
+              <tr><td class="mono">rebuild.sh</td><td>ensure-clone + drift report before build; daemon restart after activation if not in home.nix</td></tr>
+              <tr><td class="mono">home/firstmate/expected-commit</td><td>new; the commit a fresh clone lands on</td></tr>
+              <tr><td class="mono">nix/crew-tools/{pins,builders,default}.nix</td><td>new; versions, hashes, two builders, package list</td></tr>
+              <tr><td class="mono">nix/crew-tools/locks/&lt;tool&gt;/package-lock.json</td><td>new; six generated locks</td></tr>
+              <tr><td class="mono">nix/crew-tools/update.sh</td><td>new; bump/relock/rehash with 14-day gate, checksum cross-check, npm signature audit and lock diff</td></tr>
+              <tr><td class="mono">crew-tools.nix</td><td>new; the one list home.nix imports</td></tr>
+              <tr><td class="mono">home.nix</td><td>add crew tools + nodejs_24; declare the no-mistakes launchd agent</td></tr>
+              <tr><td class="mono">flake.nix</td><td>expose the set as a buildable package for Unit 2</td></tr>
+              <tr><td class="mono">configuration.nix</td><td>remove the <span class="mono">node</span> brew</td></tr>
+              <tr><td class="mono">README.md</td><td>clone step, npm/curl steps, versions, layout, scan note</td></tr>
+              <tr><td class="mono">docs/adr/0009-crew-tooling-is-nix-owned.md</td><td>new; ownership, fork-and-review, soak, Linux pins and sandbox boundary</td></tr>
+              <tr><td class="mono">.github/workflows/crew-tools.yml</td><td>new; pins-change build job and scheduled bump PR</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ─────────────────────────── EVIDENCE ─────────────────────────── -->
+      <section class="mb-10">
+        <h2 class="text-2xl font-bold mb-2">Evidence behind the claims</h2>
+        <div class="grid gap-3 sm:grid-cols-2 text-sm">
+          <div class="rounded-box bg-base-200 p-3"><strong>Tarballs are prebuilt and lockless.</strong><br /><span class="mono text-xs opacity-70">npm pack</span> listing shows <span class="mono">dist/</span>, no <span class="mono">package-lock.json</span>, no install/postinstall script.</div>
+          <div class="rounded-box bg-base-200 p-3"><strong>Generated locks work.</strong><br />All five CLIs installed with <span class="mono">npm ci --omit=dev --ignore-scripts</span> and printed their pinned versions.</div>
+          <div class="rounded-box bg-base-200 p-3"><strong>The bridge prefers PATH.</strong><br /><span class="mono">bridge.js</span> calls <span class="mono">findOnPath("chrome-devtools-mcp")</span> before the npx fallback.</div>
+          <div class="rounded-box bg-base-200 p-3"><strong>The daemon embeds its path.</strong><br />The LaunchAgent runs <span class="mono">~/.no-mistakes/bin/no-mistakes daemon run --root ~/.no-mistakes</span>; state is separate.</div>
+          <div class="rounded-box bg-base-200 p-3"><strong>One node satisfies all floors.</strong><br /><span class="mono">nodejs_24</span> = 24.22.1; quota needs 22.19, lavish 22, MCP ^22.12.</div>
+          <div class="rounded-box bg-base-200 p-3"><strong>firstmate fast-forwards only.</strong><br /><span class="mono">fm-update.sh</span> is explicitly fast-forward-only on the default branch; a detached pin would break it.</div>
+          <div class="rounded-box bg-base-200 p-3"><strong>Upstream checksums exist.</strong><br />Both release repos publish SHA-256 for all six platforms, including <span class="mono">aarch64-linux</span>.</div>
+          <div class="rounded-box bg-base-200 p-3"><strong>npm signatures verify.</strong><br /><span class="mono">npm audit signatures</span> on a generated lock verified registry signatures and SLSA attestations for transitive deps.</div>
+          <div class="rounded-box bg-base-200 p-3"><strong>Update checks can be disabled.</strong><br /><span class="mono">TREEHOUSE_NO_UPDATE_CHECK</span> and <span class="mono">NO_MISTAKES_NO_UPDATE_CHECK</span> are real env vars in the binaries.</div>
+          <div class="rounded-box bg-base-200 p-3"><strong>Node 22 EOL is spring 2027.</strong><br />Schedule: 22 ends 2027-04-30, 24 ends 2028-04-30; nixpkgs has <span class="mono">nodejs_24</span> 24.22.1.</div>
+        </div>
+      </section>
+
+      <footer class="pt-6 border-t rule text-xs opacity-60 flex flex-wrap justify-between gap-3">
+        <span>Plan only. No source files were modified. Artifact generated for review.</span>
+        <span class="mono">agentic-dev-env @ 312235e · 2026-11-20</span>
+      </footer>
+    </main>
+  </body>
+</html>

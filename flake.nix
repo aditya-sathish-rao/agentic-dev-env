@@ -48,6 +48,12 @@
         packages = import ./tools.nix { inherit pkgs; };
       };
 
+      # Buildable without switching the system, so CI can prove every pin.
+      packages.${builtins.currentSystem}.crew-tools = pkgs.buildEnv {
+        name = "crew-tools";
+        paths = builtins.attrValues (import ./nix/crew-tools/default.nix { inherit pkgs; });
+      };
+
       darwinConfigurations.${identity.host} = nix-darwin.lib.darwinSystem {
         specialArgs = { inherit identity automic-vault-tap; };
         modules = [

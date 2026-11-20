@@ -1,5 +1,5 @@
 {
-  description = "dotfiles";
+  description = "agentic-dev-env";
 
   inputs = {
     # Use `github:NixOS/nixpkgs/nixpkgs-26.05-darwin` to use Nixpkgs 26.05.

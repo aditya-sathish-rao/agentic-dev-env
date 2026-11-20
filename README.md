@@ -41,8 +41,8 @@ is evaluated, and the host platform comes from the machine. See [Adapting](#adap
 the defaults do not fit.
 
 ```sh
-git clone https://github.com/aditya-sathish-rao/agentic-dev-env.git ~/github/dotfiles
-cd ~/github/dotfiles
+git clone https://github.com/aditya-sathish-rao/agentic-dev-env.git ~/github/agentic-dev-env
+cd ~/github/agentic-dev-env
 ./rebuild.sh
 ```
 
@@ -51,9 +51,9 @@ existing one it does, in order:
 
 1. Checks the Xcode command line tools. If they are missing it starts the installer and
    stops, so run it again when that finishes.
-2. Links the clone to `~/.dotfiles`, so every config path resolves through one place and
-   the clone can live anywhere. It refuses to nest when `~/.dotfiles` is already a real
-   directory.
+2. Links the clone to `~/.agentic-dev-env`, so every config path resolves through one
+   place and the clone can live anywhere. It refuses to nest when `~/.agentic-dev-env` is
+   already a real directory.
 3. Sets `core.hooksPath` to `.githooks`.
 4. Installs [Determinate Nix](https://determinate.systems/nix) if `nix` is missing.
 5. Builds as the user who ran it: `nix build --impure`.
@@ -403,7 +403,7 @@ flake.nix           inputs pinned by flake.lock (nixpkgs, nix-darwin, home-manag
 configuration.nix   system: macOS defaults, fonts, homebrew taps/brews/casks
 tailscale.nix       system: the Tailscale daemon
 home.nix            user: packages, zsh, starship, link table, rendered VS Code settings
-home/               the dotfiles (wezterm, nvim, herdr, vscode, .pi, .agents/skills, AGENTS.md)
+home/               the config files (wezterm, nvim, herdr, vscode, .pi, .agents/skills, AGENTS.md)
 docs/adr/           one record per decision that is not obvious from the code
 GLOSSARY.md         shared terms
 rebuild.sh          the only entry point: fresh machine, or re-apply changes
@@ -472,8 +472,9 @@ machine that has never started the VM.
 
 Most of this is no longer needed, because the identity is dynamic.
 
-- **Another user, home or host.** `DOTFILES_USER`, `DOTFILES_HOME` and `DOTFILES_HOST`
-  override the identity. `DOTFILES_HOST` names the `darwinConfigurations` attribute, not
+- **Another user, home or host.** `AGENTIC_DEV_ENV_USER`, `AGENTIC_DEV_ENV_HOME` and
+  `AGENTIC_DEV_ENV_HOST` override the identity. `AGENTIC_DEV_ENV_HOST` names the
+  `darwinConfigurations` attribute, not
   the machine hostname.
 - **Another config.** Add the `$HOME`-relative target and the repo path to the table in
   `home.nix`, mapped through `config.lib.file.mkOutOfStoreSymlink`, then run

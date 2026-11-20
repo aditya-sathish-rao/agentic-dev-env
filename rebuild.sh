@@ -3,13 +3,13 @@
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
-USER_NAME="${DOTFILES_USER:-$(id -un)}"
-HOME_DIR="${DOTFILES_HOME:-$HOME}"
-HOST="${DOTFILES_HOST:-$USER_NAME}"
+USER_NAME="${AGENTIC_DEV_ENV_USER:-$(id -un)}"
+HOME_DIR="${AGENTIC_DEV_ENV_HOME:-$HOME}"
+HOST="${AGENTIC_DEV_ENV_HOST:-$USER_NAME}"
 # Impure evaluation reads these, so the flake follows whoever is logged in.
-export DOTFILES_USER="$USER_NAME"
-export DOTFILES_HOME="$HOME_DIR"
-export DOTFILES_HOST="$HOST"
+export AGENTIC_DEV_ENV_USER="$USER_NAME"
+export AGENTIC_DEV_ENV_HOME="$HOME_DIR"
+export AGENTIC_DEV_ENV_HOST="$HOST"
 
 # First, before any git call: on a fresh Mac /usr/bin/git is a stub that prompts
 # for the Xcode tools, and that prompt aborts the script under set -e.
@@ -20,12 +20,12 @@ if ! xcode-select -p >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "==> link: $HOME_DIR/.dotfiles -> $DIR"
-if [[ -e "$HOME_DIR/.dotfiles" && ! -L "$HOME_DIR/.dotfiles" ]]; then
-  echo "==> link: $HOME_DIR/.dotfiles exists and is not a symlink; move it aside first." >&2
+echo "==> link: $HOME_DIR/.agentic-dev-env -> $DIR"
+if [[ -e "$HOME_DIR/.agentic-dev-env" && ! -L "$HOME_DIR/.agentic-dev-env" ]]; then
+  echo "==> link: $HOME_DIR/.agentic-dev-env exists and is not a symlink; move it aside first." >&2
   exit 1
 fi
-ln -sfn "$DIR" "$HOME_DIR/.dotfiles"
+ln -sfn "$DIR" "$HOME_DIR/.agentic-dev-env"
 
 git -C "$DIR" config core.hooksPath .githooks
 
@@ -90,7 +90,7 @@ fi
 # cannot evaluate a git flake owned by another user (libgit2: "repository path is
 # not owned by current user"), which is exactly what a fresh clone is.
 echo "==> build: $DIR#darwinConfigurations.$HOST.system"
-SYSTEM="$HOME_DIR/.dotfiles-system"
+SYSTEM="$HOME_DIR/.agentic-dev-env-system"
 "$NIX" build --impure "$DIR#darwinConfigurations.$HOST.system" --out-link "$SYSTEM"
 
 echo "==> activate: $SYSTEM"

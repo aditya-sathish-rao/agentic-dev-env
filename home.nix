@@ -9,7 +9,7 @@
 
 let
   # rebuild.sh links the clone here, so the repo can be cloned anywhere.
-  dotfiles = "${config.home.homeDirectory}/.dotfiles";
+  agenticDevEnv = "${config.home.homeDirectory}/.agentic-dev-env";
 
   # The crew's CLIs, pinned in nix/crew-tools. A separate seam from tools.nix so
   # the CI dev shell does not carry a second Node runtime, and named here so the
@@ -127,7 +127,7 @@ assert lib.assertMsg (missingSources == [ ])
     # Edit in place: the real file stays in my repo, ~/.config (or Library) points at it.
     file =
       builtins.mapAttrs (_: source: {
-        source = config.lib.file.mkOutOfStoreSymlink "${dotfiles}/${source}";
+        source = config.lib.file.mkOutOfStoreSymlink "${agenticDevEnv}/${source}";
       }) symlinks
       // {
         # Apple's CommandLineTools gitconfig installs an ambient osxkeychain helper, so any

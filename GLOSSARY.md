@@ -25,9 +25,9 @@ destroying it and creating it again.
 An agent a first mate spawns for one task, in its own herdr tab and git worktree. Here it is
 pi on DeepSeek V4.1 Flash, chosen by `home/firstmate/crew-dispatch.json`.
 
-## dotfiles link
+## agentic-dev-env link
 
-The symlink `~/.dotfiles` that points at the clone. Every config path in this repo
+The symlink `~/.agentic-dev-env` that points at the clone. Every config path in this repo
 resolves through it, so `home.nix` can name files without knowing where the clone lives.
 
 ## egress proxy
@@ -66,7 +66,7 @@ vault for approval. A hardened tool keeps no usable secret of its own.
 ## host
 
 The name of the `darwinConfigurations` attribute the flake builds, taken from
-`DOTFILES_HOST`. It is not necessarily the machine hostname: it only names the
+`AGENTIC_DEV_ENV_HOST`. It is not necessarily the machine hostname: it only names the
 configuration in this repo.
 
 ## identity

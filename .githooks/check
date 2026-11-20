@@ -187,13 +187,13 @@ fi
 
 if [[ "$mode" == all ]]; then
   if command -v nix >/dev/null 2>&1; then
-    nix_user="${DOTFILES_USER:-$(id -un)}"
+    nix_user="${AGENTIC_DEV_ENV_USER:-$(id -un)}"
     # Same identity rebuild.sh uses, so the flake resolves the same host.
-    export DOTFILES_USER="$nix_user"
-    export DOTFILES_HOME="${DOTFILES_HOME:-$HOME}"
-    export DOTFILES_HOST="${DOTFILES_HOST:-$nix_user}"
+    export AGENTIC_DEV_ENV_USER="$nix_user"
+    export AGENTIC_DEV_ENV_HOME="${AGENTIC_DEV_ENV_HOME:-$HOME}"
+    export AGENTIC_DEV_ENV_HOST="${AGENTIC_DEV_ENV_HOST:-$nix_user}"
     if ! nix --extra-experimental-features 'nix-command flakes' eval --impure --raw \
-      ".#darwinConfigurations.$DOTFILES_HOST.system.drvPath" >/dev/null; then
+      ".#darwinConfigurations.$AGENTIC_DEV_ENV_HOST.system.drvPath" >/dev/null; then
       echo "check: nix evaluation failed; fix the configuration before it reaches main." >&2
       exit 1
     fi

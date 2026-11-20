@@ -40,5 +40,5 @@ path.
 - Only `nix-env --set` and `activate` run as root, behind one `sudo` prompt.
 - No script may assume `darwin-rebuild` exists; anything that used to shell out to it has
   to call `rebuild.sh` instead.
-- `--impure` is required, because evaluation reads `DOTFILES_USER`, `DOTFILES_HOME` and
-  `DOTFILES_HOST` from the environment.
+- `--impure` is required, because evaluation reads `AGENTIC_DEV_ENV_USER`,
+  `AGENTIC_DEV_ENV_HOME` and `AGENTIC_DEV_ENV_HOST` from the environment.

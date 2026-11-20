@@ -18,6 +18,6 @@ jobs:
       - name: Run checks
         # identity.nix reads the environment, so pin it explicitly for the runner user
         run: |
-          export DOTFILES_USER="${DOTFILES_USER:-$(id -un)}"
-          export DOTFILES_HOME="${DOTFILES_HOME:-$HOME}"
+          export AGENTIC_DEV_ENV_USER="${AGENTIC_DEV_ENV_USER:-$(id -un)}"
+          export AGENTIC_DEV_ENV_HOME="${AGENTIC_DEV_ENV_HOME:-$HOME}"
           nix develop --impure --command ./.githooks/check --all

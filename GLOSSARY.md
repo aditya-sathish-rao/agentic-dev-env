@@ -30,6 +30,19 @@ pi on DeepSeek V4.1 Flash, chosen by `home/firstmate/crew-dispatch.json`.
 The symlink `~/.dotfiles` that points at the clone. Every config path in this repo
 resolves through it, so `home.nix` can name files without knowing where the clone lives.
 
+## egress proxy
+
+`crew-sandbox proxy`, a CONNECT proxy on the host that the guest reaches at `192.168.5.2:3128`.
+It holds no credentials and terminates no TLS; it allows the hosts in `egress-allow` on ports
+443 and 80 and refuses everything else. It is the guest's only way out.
+
+## token broker
+
+`crew-sandbox broker`, a host-side service that mints one GitHub App installation token per
+task, for one repository listed in `repos-allow`, valid for under an hour and revoked at
+teardown. It holds the App private key from the vault; a crewmate never sees a GitHub
+credential of its own.
+
 ## first mate
 
 The pi session started by `mate` inside `~/firstmate`. It is the only agent you talk to: it

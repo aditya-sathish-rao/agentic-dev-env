@@ -5,3 +5,6 @@ result
 # herdr runtime state (sockets, logs, sessions) - only config.toml is config
 home/.config/herdr/*
 !home/.config/herdr/config.toml
+
+# A GitHub App private key must never enter the tree; the broker reads it from the vault.
+*.private-key.pem

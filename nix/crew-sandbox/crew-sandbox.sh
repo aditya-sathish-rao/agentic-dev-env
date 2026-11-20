@@ -5,6 +5,11 @@ name=crew
 # Injected by nix/crew-sandbox/default.nix; defaults keep this file standalone.
 config=${config:-}
 check=${check:-}
+proxy_script=${proxy_script:-}
+egress_allow=${egress_allow:-}
+broker_script=${broker_script:-}
+broker_app_id=${broker_app_id:-}
+broker_repos_file=${broker_repos_file:-}
 
 usage() {
   cat >&2 <<'EOF'
@@ -16,6 +21,8 @@ usage: crew-sandbox <command>
   status   show Lima's view of it
   shell    open a shell inside it, or run the arguments there
   check    run the phase gates against it
+  proxy    run the guest's egress proxy in the foreground
+  broker   run the token broker in the foreground (reads GITHUB_APP_PRIVATE_KEY)
 EOF
 }
 
@@ -57,6 +64,12 @@ case "$command" in
     fi
     ;;
   check) exec "$check" "$@" ;;
+  proxy) exec node "$proxy_script" --listen "${CREW_PROXY_PORT:-3128}" --allow "$egress_allow" ;;
+  broker)
+    exec av inject +GITHUB_APP_PRIVATE_KEY -- env \
+      CREW_APP_ID="$broker_app_id" CREW_BROKER_REPOS_FILE="$broker_repos_file" \
+      node "$broker_script" "$@"
+    ;;
   -h | --help)
     usage
     exit 0

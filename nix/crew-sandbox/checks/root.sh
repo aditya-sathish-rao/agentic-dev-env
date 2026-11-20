@@ -24,10 +24,11 @@ else
   flunk "input and output both default to drop (found $drops)"
 fi
 
-if nft list ruleset | grep -q 'dport 3128 accept'; then
-  pass "the proxy port is the one allowed destination"
+ports=$(nft list chain inet crew output | grep -oE 'dport [0-9]+ accept' | awk '{print $2}' | sort -u | tr '\n' ' ')
+if [[ "$ports" == "3128 3129 " ]]; then
+  pass "the only reachable host ports are the proxy and the broker"
 else
-  flunk "the proxy port is the one allowed destination"
+  flunk "the only reachable host ports are the proxy and the broker (got '${ports}')"
 fi
 
 owner=$(stat -c '%U:%a' /etc/nftables.conf)

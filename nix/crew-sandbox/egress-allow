@@ -1,0 +1,22 @@
+# The guest's whole allowlist. Anything not named here is refused at the proxy,
+# and the guest firewall drops everything that is not the proxy port, so this file
+# is the only place egress is widened.
+#
+# A line starting with a dot matches that domain and every subdomain; a bare name
+# matches exactly. Add a host only with the reason it is needed.
+
+# The Nix toolchain: the installer script, then the binary cache and its CDN.
+.determinate.systems
+.nixos.org
+
+# Flake inputs and clones (pi, home-manager, firstmate, the work).
+github.com
+.codeload.github.com
+.raw.githubusercontent.com
+
+# The crew's own tools and harness downloads.
+.herdr.dev
+.objects.githubusercontent.com
+
+# npm tarballs for the pinned CLIs.
+.registry.npmjs.org

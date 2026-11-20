@@ -73,7 +73,10 @@ provision:
           type filter hook output priority filter; policy drop;
           oif lo accept
           ct state established,related accept
+          # 3128 is the egress proxy, 3129 the token broker. Both are host loopback
+          # reached through the guest's gateway, so nothing is on the LAN.
           ip daddr $gw tcp dport 3128 accept
+          ip daddr $gw tcp dport 3129 accept
         }
       }
       EOF

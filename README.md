@@ -299,13 +299,16 @@ everything else.
 
 [nix/crew-sandbox/lima.yaml](nix/crew-sandbox/lima.yaml) is that VM: Lima on Apple's `vz`
 driver, Ubuntu 26.04 LTS pinned by image digest. It will hold herdr, the first mate, the
-crewmates and the worktree pool; today it is the box and its gate, because the credentials
-that must exist in front of it (an egress proxy, a token broker) do not exist yet.
+crewmates and the worktree pool. What exists today is the box, the egress proxy and the
+token broker, each with a gate; what is left is moving the fleet in.
 
 ```sh
-nix run .#crew-sandbox -- up      # create it on first use, then start it
-nix run .#crew-sandbox -- check   # the phase-1 gate
-nix run .#crew-sandbox -- shell   # a shell as the administration account
+nix run .#crew-sandbox -- up           # create it on first use, then start it
+nix run .#crew-sandbox -- shell        # a shell as the administration account
+nix run .#crew-sandbox -- check        # the phase-1 gate: the box
+nix run .#crew-sandbox -- check proxy  # phase 3a: the egress proxy
+nix run .#crew-sandbox -- proxy        # the guest's only way out, in the foreground
+nix run .#crew-sandbox -- broker       # mint task tokens, in the foreground
 ```
 
 What the definition guarantees, and what `check` re-proves on the running guest:
@@ -316,16 +319,26 @@ What the definition guarantees, and what `check` re-proves on the running guest:
   guest's input chain along with everything else.
 - **Agents get no root.** `agent` is created without sudo and in no privileged group, so
   `sudo -n true`, `nft flush ruleset` and writing `/etc/nftables.conf` all fail.
-- **Egress is default-deny.** One root-owned nftables table drops everything except SSH from
-  the host subnet and one port on the host, reserved for the egress proxy. DNS is closed with
-  the rest of the internet rather than left open as a covert channel.
+- **Egress is default-deny, and one allowlist wide.** One root-owned nftables table drops
+  everything except SSH from the host subnet and one port on the host. That port is
+  `crew-sandbox proxy`: a CONNECT proxy holding no credentials, which refuses any destination
+  [nix/crew-sandbox/egress-allow](nix/crew-sandbox/egress-allow) does not name and any port
+  other than 443 and 80. DNS is closed with the rest of the internet rather than left open as
+  a covert channel. The proxy binds `127.0.0.1`, which the guest reaches at `192.168.5.2`
+  because Lima forwards loopback to the guest's gateway, so nothing is exposed to the LAN.
+- **No agent holds a GitHub credential.** `crew-sandbox broker` mints one App installation
+  token per task, for one repository from [nix/crew-sandbox/repos-allow](nix/crew-sandbox/repos-allow),
+  with `contents` and `pull_requests` only. GitHub refuses a token for anything outside the
+  App's installation, so the scope survives a compromised caller. The App private key stays
+  in the vault and is injected at start with `av inject`, never written to disk.
 - **Bootstrap cannot reopen any of it.** Lima re-runs provision scripts on every boot, so the
   script touches `/etc/crew-provisioned` and exits early next time, when there is no network
   left to install from.
 
 The VM is replaced, not patched: change `lima.yaml`, then `destroy` and `up`, and run the gate
 against the new one. `crew-sandbox` is deliberately not in `home.packages`, so it never lands
-on an agent's `PATH`.
+on an agent's `PATH`. The proxy runs only while you run it: `crew-sandbox proxy` in the
+foreground, or the duration of `check proxy`, which starts and stops its own.
 
 ## Secrets
 
@@ -381,8 +394,9 @@ tools.nix           formatters and linters, shared by home.nix and the dev shell
 crew-tools.nix      the crew's runtime CLIs, built from nix/crew-tools
 nix/crew-tools/     pins.nix (versions + hashes), builders.nix (two shapes), locks/,
                     update.sh (the only writer of any of it)
-nix/crew-sandbox/   lima.yaml (the guest's definition), default.nix (the crew-sandbox CLI),
-                    check.sh and checks/ (the phase gates)
+nix/crew-sandbox/   lima.yaml (the guest's definition), proxy.mjs + egress-allow (its only
+                    way out), broker/ + repos-allow (per-task GitHub tokens), default.nix
+                    (the crew-sandbox CLI), check.sh and checks/ (the phase gates)
 flake.nix           inputs pinned by flake.lock (nixpkgs, nix-darwin, home-manager,
                     nix-homebrew, automic-vault/isotopes tap, pi); evaluated impurely
 configuration.nix   system: macOS defaults, fonts, homebrew taps/brews/casks

@@ -199,6 +199,22 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
+  // The kill switch: revoke every token this broker remembers, not just the one
+  // task that asked. Tokens are memory-only, so a broker restart already strands
+  // them; this makes the same thing deliberate and immediate.
+  if (request.method === "POST" && route.pathname === "/revoke-all") {
+    const tasks = [...issued.keys()];
+    let revoked = 0;
+    for (const task of tasks) {
+      const held = issued.get(task);
+      issued.delete(task);
+      if (await revoke(held.token)) revoked += 1;
+      console.error(`REVOKE-ALL task=${task} repo=${held.repo}`);
+    }
+    reply(response, 200, { tasks: tasks.length, revoked });
+    return;
+  }
+
   reply(response, 404, { error: "not found" });
 });
 

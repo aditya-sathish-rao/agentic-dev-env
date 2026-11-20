@@ -1,11 +1,14 @@
 // The guest's only way out. A CONNECT proxy that refuses every destination the
 // allowlist does not name, and logs every decision it makes.
 //
-// It holds no credentials and terminates no TLS: it forwards bytes. That keeps it
-// small enough to reason about, and it means a compromised guest gains nothing
-// from reaching it beyond the hosts listed in the allowlist.
+// It holds no credentials for the allowlist route and terminates no TLS there: it
+// forwards bytes, so a compromised guest gains nothing beyond the hosts named in
+// the allowlist. The one exception is the model gateway below, which exists so the
+// real model key can stay on the host.
+import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
+import https from "node:https";
 import net from "node:net";
 
 const argv = process.argv.slice(2);
@@ -16,9 +19,22 @@ const flag = (name, fallback) => {
 
 const port = Number(flag("--listen", "3128"));
 const allowFile = flag("--allow");
+const modelUpstream = flag("--model-upstream", "https://api.deepseek.com");
+const keyHashOut = flag("--key-hash-out");
 if (!allowFile) {
   console.error("crew-proxy: --allow <file> is required");
   process.exit(2);
+}
+
+// The model key and the guest's token are independent: the key comes from the
+// vault when the proxy starts, the token is created inside the VM. Without both,
+// the gateway is disabled rather than open.
+const modelKey = process.env.DEEPSEEK_API_KEY;
+const modelToken = process.env.CREW_MODEL_TOKEN;
+const modelReady = Boolean(modelKey && modelToken);
+if (keyHashOut) {
+  const hash = modelKey ? crypto.createHash("sha256").update(modelKey).digest("hex") : "";
+  fs.writeFileSync(keyHashOut, `${hash}\n`);
 }
 
 const rules = fs
@@ -52,7 +68,105 @@ const deny = (socket, decision, target, from) => {
   socket.end("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n");
 };
 
+// The model gateway. pi's models.json points the deepseek provider at
+// http://host.lima.internal:3128/model, so the guest asks this route for
+// completions and the real key is added here, in the one host process that has it.
+// The route is closed unless both the vault key and the guest's token are present.
+const modelPrefix = "/model";
+const modelRoutes = new Map([
+  ["GET /models", "/models"],
+  ["POST /chat/completions", "/chat/completions"],
+]);
+const hopByHop = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+  "host",
+  "authorization",
+]);
+
+const isModelRequest = (url) =>
+  url === modelPrefix || url.startsWith(`${modelPrefix}/`) || url.startsWith(`${modelPrefix}?`);
+
+const tokenMatches = (header) => {
+  if (!modelToken || typeof header !== "string" || !header.startsWith("Bearer ")) return false;
+  const given = Buffer.from(header.slice("Bearer ".length));
+  const expected = Buffer.from(modelToken);
+  return given.length === expected.length && crypto.timingSafeEqual(given, expected);
+};
+
+const replyJson = (response, status, payload) => {
+  response.writeHead(status, { "content-type": "application/json" });
+  response.end(JSON.stringify(payload));
+};
+
+const handleModel = (request, response) => {
+  const from = request.socket.remoteAddress;
+  const route = new URL(request.url, "http://crew-model");
+  const path = route.pathname.slice(modelPrefix.length);
+  const label = `${request.method} ${path}`;
+
+  if (!modelReady) {
+    log("DENY", `model-disabled ${label}`, from);
+    replyJson(response, 503, { error: "model gateway is disabled" });
+    return;
+  }
+  if (!tokenMatches(request.headers.authorization)) {
+    log("DENY", `model-auth ${label}`, from);
+    replyJson(response, 401, { error: "unauthorized" });
+    return;
+  }
+  const upstreamPath = modelRoutes.get(label);
+  if (!upstreamPath) {
+    log("DENY", `model-path ${label}`, from);
+    replyJson(response, 404, { error: "not found" });
+    return;
+  }
+
+  const target = new URL(upstreamPath, modelUpstream);
+  const headers = { ...request.headers };
+  for (const name of hopByHop) delete headers[name];
+  headers.host = target.host;
+  headers.authorization = `Bearer ${modelKey}`;
+
+  const upstream = https.request(target, { method: request.method, headers }, (upstreamResponse) => {
+    const responseHeaders = { ...upstreamResponse.headers };
+    const responseHopByHop = [
+      "connection",
+      "keep-alive",
+      "proxy-authenticate",
+      "te",
+      "trailer",
+      "transfer-encoding",
+      "upgrade",
+    ];
+    for (const name of responseHopByHop) delete responseHeaders[name];
+    response.writeHead(upstreamResponse.statusCode, responseHeaders);
+    upstreamResponse.pipe(response);
+  });
+  upstream.setTimeout(15 * 60 * 1000, () => upstream.destroy(new Error("upstream timeout")));
+  upstream.on("error", () => {
+    if (response.headersSent) response.destroy();
+    else replyJson(response, 502, { error: "model upstream failed" });
+  });
+  request.pipe(upstream);
+  response.on("close", () => {
+    if (!upstream.destroyed) upstream.destroy();
+  });
+  log("ALLOW", `model ${label}`, from);
+};
+
 const server = http.createServer((req, res) => {
+  if (isModelRequest(req.url)) {
+    handleModel(req, res);
+    return;
+  }
+
   const from = req.socket.remoteAddress;
   let target;
   try {
@@ -107,5 +221,8 @@ server.on("connect", (req, socket, head) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
-  console.error(`crew-proxy: listening on 127.0.0.1:${port} with ${rules.length} allowed hosts`);
+  const model = modelReady ? `on ${modelUpstream}` : "disabled (no key or token)";
+  console.error(
+    `crew-proxy: listening on 127.0.0.1:${port} with ${rules.length} allowed hosts; model gateway ${model}`,
+  );
 });

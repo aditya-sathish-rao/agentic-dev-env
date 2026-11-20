@@ -39,6 +39,15 @@ user:
 provision:
   - mode: system
     script: |
+      # The guest's model token authenticates it to the host gateway; it is not a
+      # model key. This runs before the marker below, so a VM created by an older
+      # definition gains a token on its next boot. It needs no network.
+      if [ ! -s /etc/crew-model-token ]; then
+        printf '%s' "$(openssl rand -hex 32)" >/etc/crew-model-token
+        chown root:root /etc/crew-model-token
+        chmod 0644 /etc/crew-model-token
+      fi
+
       # Lima re-runs this on every boot. Once egress is closed that is fatal, so the
       # marker makes a restart a no-op. Changing this file means re-creating the VM.
       [ -e /etc/crew-provisioned ] && exit 0
@@ -110,6 +119,9 @@ provision:
       _crew_gw=$(ip -4 route show default | awk '{print $3; exit}')
       export https_proxy="http://${_crew_gw}:3128"
       export http_proxy="$https_proxy" all_proxy="$https_proxy"
+      # The model gateway is on the host too, but it is a destination, not a proxy:
+      # a client that sends it through the CONNECT proxy would be refused.
+      export no_proxy="host.lima.internal" NO_PROXY="host.lima.internal"
       unset _crew_gw
       PROXY
       chmod 0644 /etc/profile.d/crew-proxy.sh

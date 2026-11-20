@@ -22,16 +22,22 @@ let
       pkgs.lima
       pkgs.coreutils
       pkgs.curl
+      pkgs.jq
       pkgs.nodejs_24
     ];
     text = ''
       agent_checks=${./checks/agent.sh}
       root_checks=${./checks/root.sh}
       proxy_check=${./checks/proxy.sh}
+      model_check=${./checks/model.sh}
       toolchain_check=${./checks/toolchain.sh}
+      broker_check=${./checks/broker.sh}
       expected_pi=${piPackage.version}
       proxy_script=${proxyScript}
       egress_allow=${egressAllow}
+      broker_script=${brokerScript}
+      broker_app_id=${brokerAppId}
+      broker_repos_file=${reposAllow}
       ${builtins.readFile ./check.sh}
     '';
   };
@@ -41,6 +47,7 @@ pkgs.writeShellApplication {
   runtimeInputs = [
     pkgs.lima
     pkgs.coreutils
+    pkgs.curl
     pkgs.nodejs_24
   ];
   text = ''

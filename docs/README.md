@@ -299,20 +299,24 @@ everything else.
 
 [nix/crew-sandbox/lima.yaml](nix/crew-sandbox/lima.yaml) is that VM: Lima on Apple's `vz`
 driver, Ubuntu 26.04 LTS pinned by image digest. It will hold herdr, the first mate, the
-crewmates and the worktree pool. What exists today is the box, the egress proxy and the
-token broker, each with a gate; what is left is moving the fleet in.
+crewmates and the worktree pool. What exists today is the box, the egress proxy, the model
+gateway, the guest toolchain and the GitHub token broker, each with a gate; what is left is
+moving the fleet in.
 
 ```sh
-nix run .#crew-sandbox -- up           # create it on first use, then start it
-nix run .#crew-sandbox -- shell        # a shell as the administration account
-nix run .#crew-sandbox -- check        # the phase-1 gate: the box
+nix run .#crew-sandbox -- up               # create it on first use, then start it
+nix run .#crew-sandbox -- shell            # a shell as the administration account
+nix run .#crew-sandbox -- check            # the phase-1 gate: the box
 nix run .#crew-sandbox -- check proxy      # phase 3a: the egress proxy
+nix run .#crew-sandbox -- check model      # phase 3a-2: the model key stays on the host
 nix run .#crew-sandbox -- check toolchain  # phase 2: the guest's tools
-nix run .#crew-sandbox -- proxy        # the guest's only way out, in the foreground
-nix run .#crew-sandbox -- broker       # mint task tokens, in the foreground
+nix run .#crew-sandbox -- check broker     # phase 3b: one repo, one token, revocable
+nix run .#crew-sandbox -- proxy            # egress and model gateway, in the foreground
+nix run .#crew-sandbox -- broker           # mint task tokens, in the foreground
+nix run .#crew-sandbox -- kill             # stop the VM and revoke every issued token
 ```
 
-What the definition guarantees, and what `check` re-proves on the running guest:
+What the definition and the two host services guarantee, and what each gate re-proves:
 
 - **Nothing from `$HOME` is mounted.** `mounts: []`, no `portForwards` entries, no agent
   forwarding. The only host-to-guest channel is SSH, which `limactl shell` uses. Lima adds one
@@ -327,11 +331,30 @@ What the definition guarantees, and what `check` re-proves on the running guest:
   other than 443 and 80. DNS is closed with the rest of the internet rather than left open as
   a covert channel. The proxy binds `127.0.0.1`, which the guest reaches at `192.168.5.2`
   because Lima forwards loopback to the guest's gateway, so nothing is exposed to the LAN.
+- **No agent holds the model key.** pi 1.5.2 can point a built-in provider at another
+  endpoint through `models.json`, so the guest does not need a TLS-terminating proxy. Its
+  `deepseek` provider points at `http://host.lima.internal:3128/model`, a gateway route on
+  the same host proxy. The guest presents a random token created inside the VM
+  (`/etc/crew-model-token`), and only the host proxy process ever holds the real
+  `DEEPSEEK_API_KEY`, injected from the vault when `crew-sandbox proxy` starts. The gateway
+  strips the guest's `Authorization` header, adds the real one, forwards only `GET /models`
+  and `POST /chat/completions` to `https://api.deepseek.com`, and refuses the route when
+  either half is missing. `check model` proves a request without the token is refused, a
+  request with it reaches the API, and no environment value in the guest is the real key.
 - **No agent holds a GitHub credential.** `crew-sandbox broker` mints one App installation
   token per task, for one repository from [nix/crew-sandbox/repos-allow](nix/crew-sandbox/repos-allow),
   with `contents` and `pull_requests` only. GitHub refuses a token for anything outside the
   App's installation, so the scope survives a compromised caller. The App private key stays
   in the vault and is injected at start with `av inject`, never written to disk.
+  `check broker` runs on the host without the VM: it mints a token for `crew-broker`, writes
+  and deletes a probe file there, is refused a write on `agentic-dev-env`, revokes the token
+  and sees GitHub refuse it afterwards. It is the one gate that creates a real commit pair in
+  the throwaway `crew-broker` repository. Binding a token to the task that asked is the one
+  3b item left: it needs the spawn path that moves in with phase 4, which is what knows each
+  task's repository.
+- **A kill switch revokes and stops.** `crew-sandbox kill` stops the VM and asks a running
+  broker to revoke every token it issued. Tokens are kept in the broker's memory only, so a
+  broker restart also strands them; the command makes that immediate and deliberate.
 - **Bootstrap cannot reopen any of it.** Lima re-runs provision scripts on every boot, so the
   script touches `/etc/crew-provisioned` and exits early next time, when there is no network
   left to install from.
@@ -339,7 +362,10 @@ What the definition guarantees, and what `check` re-proves on the running guest:
 The VM is replaced, not patched: change `lima.yaml`, then `destroy` and `up`, and run the gate
 against the new one. `crew-sandbox` is deliberately not in `home.packages`, so it never lands
 on an agent's `PATH`. The proxy runs only while you run it: `crew-sandbox proxy` in the
-foreground, or the duration of `check proxy`, which starts and stops its own.
+foreground (it needs the VM for the gateway token and the vault for the key), or for the
+duration of `check proxy` and `check model`, which start and stop their own. `check proxy`
+starts a keyless proxy, so `check model` refuses to run while another proxy holds port 3128,
+and `check model` starts a keyed one.
 
 ## Secrets
 
@@ -396,8 +422,9 @@ crew-tools.nix      the crew's runtime CLIs, built from nix/crew-tools
 nix/crew-tools/     pins.nix (versions + hashes), builders.nix (two shapes), locks/,
                     update.sh (the only writer of any of it)
 nix/crew-sandbox/   lima.yaml (the guest's definition), proxy.mjs + egress-allow (its only
-                    way out), broker/ + repos-allow (per-task GitHub tokens), default.nix
-                    (the crew-sandbox CLI), check.sh and checks/ (the phase gates)
+                    way out, and the model gateway), guest/ (pi's proxied provider config),
+                    broker/ + repos-allow (per-task GitHub tokens), default.nix (the
+                    crew-sandbox CLI), check.sh and checks/ (the phase gates)
 flake.nix           inputs pinned by flake.lock (nixpkgs, nix-darwin, home-manager,
                     nix-homebrew, automic-vault/isotopes tap, pi); evaluated impurely
 configuration.nix   system: macOS defaults, fonts, homebrew taps/brews/casks

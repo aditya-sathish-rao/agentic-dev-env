@@ -29,6 +29,13 @@ in
       piPackage
     ]
     ++ builtins.attrValues (import ../crew-tools/default.nix { inherit pkgs; });
+
+    # Pi's provider endpoint and defaults point at the host's model gateway, so the
+    # real model key is never part of the guest's configuration or environment.
+    file = {
+      ".pi/agent/models.json".source = ./guest/models.json;
+      ".pi/agent/settings.json".source = ./guest/settings.json;
+    };
   };
 
   # The proxy lives in /etc/profile.d/crew-proxy.sh, which every login shell reads;

@@ -35,7 +35,10 @@ let
   symlinks = {
     ".config/wezterm" = "home/.config/wezterm";
     ".config/nvim" = "home/.config/nvim";
-    ".config/herdr" = "home/.config/herdr";
+    # Only config.toml: herdr writes its runtime state (sockets, logs, session
+    # snapshots) into ~/.config/herdr, and linking the directory put all of it in
+    # this repo. Same reason as ~/.pi/agent below.
+    ".config/herdr/config.toml" = "home/.config/herdr/config.toml";
     # Claude reads CLAUDE.md; other agents read AGENTS.md - same file, one copy.
     ".claude/CLAUDE.md" = "home/AGENTS.md";
     ".claude/AGENTS.md" = "home/AGENTS.md";
@@ -61,6 +64,12 @@ let
   }
   // skillLinks;
 
+  # mkOutOfStoreSymlink never checks that its target exists, so a typo in the table
+  # above would activate a dangling link and the config would silently be absent.
+  missingSources = builtins.filter (target: !builtins.pathExists (./. + "/${symlinks.${target}}")) (
+    builtins.attrNames symlinks
+  );
+
   # VS Code saves settings with an atomic temp-file rename and refuses to unlock a
   # symlink into the read-only store, so settings.json can be neither linked nor
   # store-rendered. It is seeded once as a real file and then owned by VS Code;
@@ -72,6 +81,8 @@ let
     )
   );
 in
+assert lib.assertMsg (missingSources == [ ])
+  "home.nix: these link targets do not exist in the repo: ${lib.concatStringsSep ", " missingSources}";
 {
   home = {
     inherit (identity) username homeDirectory;
@@ -139,8 +150,10 @@ in
       syntaxHighlighting.enable = true; # commands turn green when valid
       # /etc/zprofile rebuilds PATH with path_helper after .zshenv, so a login shell
       # would drop a .zshenv export. .zshrc runs later, which keeps this one.
+      # typeset -U stops a nested shell from appending a second copy of the entry.
       initContent = ''
-        export PATH="$HOME/.local/bin:$PATH"
+        typeset -U path
+        path=("$HOME/.local/bin" $path)
         bindkey '^f' autosuggest-accept
       '';
       shellAliases = {

@@ -9,7 +9,8 @@
 #
 # Probes that cannot use a model key (`--help`, `--version`, `auth`, `update`,
 # `--list-models`) pass through, so firstmate's help and version detection never
-# waits on a vault approval.
+# waits on a vault approval. Only the first argument decides: a later word that
+# happens to be "auth" is prompt text, not a subcommand.
 set -u
 
 real=''
@@ -26,14 +27,12 @@ if [[ -z $real ]]; then
   exit 127
 fi
 
-for arg in "$@"; do
-  case $arg in
-    --help | --version | --list-models | auth | update) exec "$real" "$@" ;;
-  esac
-done
+case ${1:-} in
+  --help | --version | --list-models | auth | update) exec "$real" "$@" ;;
+esac
 
 if [[ -z ${DEEPSEEK_API_KEY:-} ]] && command -v av >/dev/null 2>&1; then
-  exec av inject +DEEPSEEK_API_KEY -- "$0" "$@"
+  exec av inject +DEEPSEEK_API_KEY -- "${BASH_SOURCE[0]}" "$@"
 fi
 
 exec "$real" "$@"

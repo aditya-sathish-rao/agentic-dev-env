@@ -35,7 +35,6 @@ if [[ ! -x "$NIX" ]]; then
   echo "    installing Determinate Nix..."
   curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix |
     sh -s -- install --determinate
-  NIX=/nix/var/nix/profiles/default/bin/nix
   if [[ ! -x "$NIX" ]]; then
     echo "==> nix: install did not complete; re-run ./rebuild.sh." >&2
     exit 1

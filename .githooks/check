@@ -53,16 +53,39 @@ md_files=()
 toml_files=()
 yaml_files=()
 
+# Classify by extension first, then by shebang: the shell scripts here have no
+# extension (.githooks/check, home/.local/bin/pi), so an extension-only case would
+# never format or lint them.
+file_type() {
+  case "$1" in
+    *.nix) echo nix ;;
+    *.lua) echo lua ;;
+    *.json | *.jsonc) echo json ;;
+    *.md) echo md ;;
+    *.toml) echo toml ;;
+    *.yml | *.yaml) echo yaml ;;
+    *.sh) echo sh ;;
+    *)
+      local first=''
+      IFS= read -r first <"$1" || true
+      case "$first" in
+        '#!'*bash* | '#!'*'/sh'* | '#!'*' sh'*) echo sh ;;
+        *) echo '' ;;
+      esac
+      ;;
+  esac
+}
+
 for file in "${files[@]}"; do
   [[ -f "$file" ]] || continue
-  case "$file" in
-    *.nix) nix_files+=("$file") ;;
-    *.sh | *pre-commit | */check) sh_files+=("$file") ;;
-    *.lua) lua_files+=("$file") ;;
-    *.json | *.jsonc) json_files+=("$file") ;;
-    *.md) md_files+=("$file") ;;
-    *.toml) toml_files+=("$file") ;;
-    *.yml | *.yaml) yaml_files+=("$file") ;;
+  case "$(file_type "$file")" in
+    nix) nix_files+=("$file") ;;
+    sh) sh_files+=("$file") ;;
+    lua) lua_files+=("$file") ;;
+    json) json_files+=("$file") ;;
+    md) md_files+=("$file") ;;
+    toml) toml_files+=("$file") ;;
+    yaml) yaml_files+=("$file") ;;
   esac
 done
 

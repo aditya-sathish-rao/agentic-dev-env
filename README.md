@@ -306,7 +306,8 @@ token broker, each with a gate; what is left is moving the fleet in.
 nix run .#crew-sandbox -- up           # create it on first use, then start it
 nix run .#crew-sandbox -- shell        # a shell as the administration account
 nix run .#crew-sandbox -- check        # the phase-1 gate: the box
-nix run .#crew-sandbox -- check proxy  # phase 3a: the egress proxy
+nix run .#crew-sandbox -- check proxy      # phase 3a: the egress proxy
+nix run .#crew-sandbox -- check toolchain  # phase 2: the guest's tools
 nix run .#crew-sandbox -- proxy        # the guest's only way out, in the foreground
 nix run .#crew-sandbox -- broker       # mint task tokens, in the foreground
 ```

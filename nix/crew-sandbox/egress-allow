@@ -14,8 +14,14 @@ github.com
 .codeload.github.com
 .raw.githubusercontent.com
 
-# The crew's own tools and harness downloads.
+# The crew's own tools and harness downloads. pi fetches its own bundle at build
+# time, so its vendor host is a build dependency, not a convenience.
 .herdr.dev
+.pi.dev
+
+# GitHub serves release assets from a separate CDN host: the crew tools are
+# release binaries, so this is a build dependency, not a convenience.
+.release-assets.githubusercontent.com
 .objects.githubusercontent.com
 
 # npm tarballs for the pinned CLIs.

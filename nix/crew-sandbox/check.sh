@@ -8,16 +8,18 @@ name=crew
 agent_checks=${agent_checks:-}
 root_checks=${root_checks:-}
 proxy_check=${proxy_check:-}
+toolchain_check=${toolchain_check:-}
+expected_pi=${expected_pi:-}
 proxy_script=${proxy_script:-}
 egress_allow=${egress_allow:-}
 
 usage() {
-  echo "usage: crew-sandbox check [box|proxy]"
+  echo "usage: crew-sandbox check [box|proxy|toolchain]"
 }
 
 phase=${1:-box}
 case "$phase" in
-  box | proxy) ;;
+  box | proxy | toolchain) ;;
   -h | --help)
     usage
     exit 0
@@ -41,7 +43,7 @@ proxy_pid=""
 cleanup() {
   if [[ -n "$proxy_pid" ]]; then kill "$proxy_pid" 2>/dev/null || true; fi
   limactl shell "$name" -- sudo -n rm -f /tmp/crew-agent-checks.sh /tmp/crew-root-checks.sh \
-    /tmp/crew-proxy-checks.sh >/dev/null 2>&1 || true
+    /tmp/crew-proxy-checks.sh /tmp/crew-toolchain-checks.sh >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -74,6 +76,13 @@ if [[ "$phase" == proxy ]]; then
   printf '\nphase 3a: the egress proxy\n'
   limactl copy "$proxy_check" "$name:/tmp/crew-proxy-checks.sh"
   limactl shell "$name" -- sudo -n -u agent -H bash /tmp/crew-proxy-checks.sh || status=1
+fi
+
+if [[ "$phase" == toolchain ]]; then
+  printf '\nphase 2: the toolchain\n'
+  limactl copy "$toolchain_check" "$name:/tmp/crew-toolchain-checks.sh"
+  limactl shell "$name" -- sudo -n -u agent -H env CREW_EXPECTED_PI="$expected_pi" \
+    bash -l /tmp/crew-toolchain-checks.sh || status=1
 fi
 
 if [[ "$status" -eq 0 ]]; then

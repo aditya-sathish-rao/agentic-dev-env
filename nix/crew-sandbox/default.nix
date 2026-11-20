@@ -1,7 +1,7 @@
 # The host-side seam for the crew sandbox: the pinned VM definition, the egress
 # proxy, and the one CLI that drives both. It is the operator's tool. No agent runs
 # it, and nothing inside the guest can reach it.
-{ pkgs, ... }:
+{ pkgs, piPackage, ... }:
 let
   limaConfig = pkgs.writeText "crew-lima.yaml" (builtins.readFile ./lima.yaml);
   proxyScript = ./proxy.mjs;
@@ -28,6 +28,8 @@ let
       agent_checks=${./checks/agent.sh}
       root_checks=${./checks/root.sh}
       proxy_check=${./checks/proxy.sh}
+      toolchain_check=${./checks/toolchain.sh}
+      expected_pi=${piPackage.version}
       proxy_script=${proxyScript}
       egress_allow=${egressAllow}
       ${builtins.readFile ./check.sh}

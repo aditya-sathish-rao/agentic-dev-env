@@ -38,27 +38,55 @@
     }:
     let
       identity = import ./identity.nix;
-      pkgs = nixpkgs.legacyPackages.${builtins.currentSystem};
       piPackage = pi.packages.${builtins.currentSystem}.default;
+
+      # Output attribute names must be pure: home-manager re-evaluates this flake
+      # without --impure inside the guest, and builtins.currentSystem is not there.
+      systems = [
+        "aarch64-darwin"
+        "aarch64-linux"
+      ];
+      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system} system);
     in
     {
       # Same tools the checks need, so CI does not pick them up from a runner's
       # registry: nix develop --impure --command ./.githooks/check --all
-      devShells.${builtins.currentSystem}.default = pkgs.mkShell {
-        packages = import ./tools.nix { inherit pkgs; };
-      };
+      devShells = forAllSystems (
+        systemPkgs: _: {
+          default = systemPkgs.mkShell {
+            packages = import ./tools.nix { pkgs = systemPkgs; };
+          };
+        }
+      );
 
       # Buildable without switching the system, so CI can prove every pin.
-      packages.${builtins.currentSystem} = {
-        crew-tools = pkgs.buildEnv {
-          name = "crew-tools";
-          paths = builtins.attrValues (import ./nix/crew-tools/default.nix { inherit pkgs; });
-        };
+      packages = forAllSystems (
+        systemPkgs: system:
+        {
+          crew-tools = systemPkgs.buildEnv {
+            name = "crew-tools";
+            paths = builtins.attrValues (import ./nix/crew-tools/default.nix { pkgs = systemPkgs; });
+          };
 
-        # The host side of the crew sandbox: `nix run .#crew-sandbox -- up`. Kept out
-        # of home.packages on purpose, because it is the operator's handle on the VM
-        # and must not appear on an agent's PATH.
-        crew-sandbox = import ./nix/crew-sandbox { inherit pkgs; };
+          crew-sandbox = import ./nix/crew-sandbox {
+            pkgs = systemPkgs;
+            piPackage = pi.packages.${system}.default;
+          };
+        }
+        // nixpkgs.lib.optionalAttrs (system == "aarch64-linux") {
+          # Inside the guest, `nix run .#home-manager` needs no registry lookup.
+          home-manager = home-manager.packages.aarch64-linux.home-manager;
+        }
+      );
+
+      # The guest's user environment, evaluated for Linux and built inside the VM:
+      # this Mac has no Linux builder, and the guest has its own Nix.
+      homeConfigurations."agent@aarch64-linux" = home-manager.lib.homeManagerConfiguration {
+        pkgs = nixpkgs.legacyPackages.aarch64-linux;
+        modules = [ ./nix/crew-sandbox/guest.nix ];
+        extraSpecialArgs = {
+          piPackage = pi.packages.aarch64-linux.default;
+        };
       };
 
       darwinConfigurations.${identity.host} = nix-darwin.lib.darwinSystem {

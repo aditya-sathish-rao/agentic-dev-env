@@ -2,11 +2,23 @@
 
 The words this repo uses in its own, narrow sense.
 
+## agent account
+
+The `agent` Linux user inside the crew VM. Agents run as it, and it holds no privilege: no
+sudo, no privileged group, no readable firewall configuration. It is not an account you log
+in as; `crew-sandbox shell` gives you the administration account instead.
+
 ## check
 
 The tracked `.githooks/check` module that formats and lints this repo. `--staged` is the
 default and what git runs through `.githooks/pre-commit`; `--all` checks every tracked
 file and also evaluates the flake.
+
+## crew VM
+
+The one Lima guest defined by [nix/crew-sandbox/lima.yaml](nix/crew-sandbox/lima.yaml), which
+the fleet will run inside. It is replaced rather than patched: changing its definition means
+destroying it and creating it again.
 
 ## crewmate
 
@@ -22,6 +34,11 @@ resolves through it, so `home.nix` can name files without knowing where the clon
 
 The pi session started by `mate` inside `~/firstmate`. It is the only agent you talk to: it
 turns a request into parallel tasks and hands them to crewmates.
+
+## guest
+
+The Linux side of the crew VM, as opposed to the host, the macOS machine running it. A guest
+property is one asserted from inside, over SSH, not read from the definition file.
 
 ## harness
 

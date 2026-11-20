@@ -49,9 +49,16 @@
       };
 
       # Buildable without switching the system, so CI can prove every pin.
-      packages.${builtins.currentSystem}.crew-tools = pkgs.buildEnv {
-        name = "crew-tools";
-        paths = builtins.attrValues (import ./nix/crew-tools/default.nix { inherit pkgs; });
+      packages.${builtins.currentSystem} = {
+        crew-tools = pkgs.buildEnv {
+          name = "crew-tools";
+          paths = builtins.attrValues (import ./nix/crew-tools/default.nix { inherit pkgs; });
+        };
+
+        # The host side of the crew sandbox: `nix run .#crew-sandbox -- up`. Kept out
+        # of home.packages on purpose, because it is the operator's handle on the VM
+        # and must not appear on an agent's PATH.
+        crew-sandbox = import ./nix/crew-sandbox { inherit pkgs; };
       };
 
       darwinConfigurations.${identity.host} = nix-darwin.lib.darwinSystem {

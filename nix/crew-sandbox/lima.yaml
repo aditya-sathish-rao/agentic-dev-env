@@ -1,0 +1,85 @@
+# The crew VM: one Ubuntu LTS guest that holds the whole fleet (herdr, the first
+# mate, the crewmates and the worktree pool). It is defined here so a rebuild
+# replaces it instead of patching it.
+#
+# Nothing from the host is mounted. `crew-sandbox check` asserts every property
+# below that a guest could otherwise lose silently.
+arch: aarch64
+os: Linux
+vmType: vz
+cpus: 4
+memory: 6GiB
+disk: 30GiB
+
+# Pinned by digest, not by tag: a rebuilt guest runs the bytes this file names.
+images:
+  - location: "https://cloud-images.ubuntu.com/releases/26.04/release/ubuntu-26.04-server-cloudimg-arm64.img"
+    digest: "sha256:cf3b8472b84e7de37cdc2d2e9a9bf82b3edf0ab97113a1422eff048f26688e2f"
+
+mounts: []
+portForwards: []
+
+containerd:
+  system: false
+  user: false
+
+ssh:
+  localPort: 0
+  loadDotSSHPubKeys: true
+  forwardAgent: false
+  forwardX11: false
+
+# The administration account. Lima provisions and re-provisions through it, so it
+# keeps sudo. Agents never use it; they run as `agent`, created without sudo below.
+user:
+  name: crew
+  home: /home/crew
+  shell: /bin/bash
+
+provision:
+  - mode: system
+    script: |
+      # Lima re-runs this on every boot. Once egress is closed that is fatal, so the
+      # marker makes a restart a no-op. Changing this file means re-creating the VM.
+      [ -e /etc/crew-provisioned ] && exit 0
+
+      set -eux
+
+      # Egress is open for this step only; the last block below closes it for good.
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update
+      apt-get install -y --no-install-recommends nftables curl dnsutils
+
+      id -u agent >/dev/null 2>&1 || useradd --create-home --shell /bin/bash agent
+
+      subnet=$(ip -4 -o addr show scope global | awk '{print $4; exit}')
+      gw=$(ip -4 route show default | awk '{print $3; exit}')
+
+      # Root-owned, so the agent user can neither read nor rewrite it, and can only
+      # load a ruleset as root, which it cannot become.
+      cat >/etc/nftables.conf <<EOF
+      #!/usr/sbin/nft -f
+      flush ruleset
+
+      table inet crew {
+        chain input {
+          type filter hook input priority filter; policy drop;
+          iif lo accept
+          ct state established,related accept
+          ip saddr $subnet tcp dport 22 accept
+        }
+
+        chain output {
+          type filter hook output priority filter; policy drop;
+          oif lo accept
+          ct state established,related accept
+          ip daddr $gw tcp dport 3128 accept
+        }
+      }
+      EOF
+
+      chown root:root /etc/nftables.conf
+      chmod 0644 /etc/nftables.conf
+      systemctl enable --now nftables
+
+      touch /etc/crew-provisioned

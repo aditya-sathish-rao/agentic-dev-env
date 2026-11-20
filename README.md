@@ -291,6 +291,42 @@ av save DEEPSEEK_API_KEY
 
 Then allow the launcher for it, as in step 4.
 
+## Sandbox
+
+Worktrees isolate git state, not authority. A crewmate runs as you: your files, your `gh`
+token, your network. The boundary is one Linux VM around the fleet, declared here like
+everything else.
+
+[nix/crew-sandbox/lima.yaml](nix/crew-sandbox/lima.yaml) is that VM: Lima on Apple's `vz`
+driver, Ubuntu 26.04 LTS pinned by image digest. It will hold herdr, the first mate, the
+crewmates and the worktree pool; today it is the box and its gate, because the credentials
+that must exist in front of it (an egress proxy, a token broker) do not exist yet.
+
+```sh
+nix run .#crew-sandbox -- up      # create it on first use, then start it
+nix run .#crew-sandbox -- check   # the phase-1 gate
+nix run .#crew-sandbox -- shell   # a shell as the administration account
+```
+
+What the definition guarantees, and what `check` re-proves on the running guest:
+
+- **Nothing from `$HOME` is mounted.** `mounts: []`, no `portForwards` entries, no agent
+  forwarding. The only host-to-guest channel is SSH, which `limactl shell` uses. Lima adds one
+  forward of its own, host time sync on UDP 323, which is inbound-only and dropped by the
+  guest's input chain along with everything else.
+- **Agents get no root.** `agent` is created without sudo and in no privileged group, so
+  `sudo -n true`, `nft flush ruleset` and writing `/etc/nftables.conf` all fail.
+- **Egress is default-deny.** One root-owned nftables table drops everything except SSH from
+  the host subnet and one port on the host, reserved for the egress proxy. DNS is closed with
+  the rest of the internet rather than left open as a covert channel.
+- **Bootstrap cannot reopen any of it.** Lima re-runs provision scripts on every boot, so the
+  script touches `/etc/crew-provisioned` and exits early next time, when there is no network
+  left to install from.
+
+The VM is replaced, not patched: change `lima.yaml`, then `destroy` and `up`, and run the gate
+against the new one. `crew-sandbox` is deliberately not in `home.packages`, so it never lands
+on an agent's `PATH`.
+
 ## Secrets
 
 Policy: every secret lives in Automic Vault. No secret in this repo, no key in
@@ -345,6 +381,8 @@ tools.nix           formatters and linters, shared by home.nix and the dev shell
 crew-tools.nix      the crew's runtime CLIs, built from nix/crew-tools
 nix/crew-tools/     pins.nix (versions + hashes), builders.nix (two shapes), locks/,
                     update.sh (the only writer of any of it)
+nix/crew-sandbox/   lima.yaml (the guest's definition), default.nix (the crew-sandbox CLI),
+                    check.sh and checks/ (the phase gates)
 flake.nix           inputs pinned by flake.lock (nixpkgs, nix-darwin, home-manager,
                     nix-homebrew, automic-vault/isotopes tap, pi); evaluated impurely
 configuration.nix   system: macOS defaults, fonts, homebrew taps/brews/casks
@@ -410,6 +448,10 @@ else:
 ```sh
 git config core.hooksPath .githooks
 ```
+
+The crew VM has a separate gate, because it asserts properties of a running guest rather than
+of files: `nix run .#crew-sandbox -- check`. It stays out of `--all`, which must pass on a
+machine that has never started the VM.
 
 ## Adapting
 

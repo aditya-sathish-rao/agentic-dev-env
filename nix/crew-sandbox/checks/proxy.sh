@@ -20,6 +20,17 @@ else
   flunk "an allowlisted host answers through the proxy"
 fi
 
+# github.com alone only covers git. gh-axi and no-mistakes drive the REST API on
+# a different host, so a missing api.github.com leaves the crew's tools broken
+# while clone and push still work.
+code=$(curl -sS -m 15 -o /dev/null -w '%{http_code}' -x "$proxy" \
+  https://api.github.com/ 2>/dev/null || echo 000)
+if [[ "$code" != 000 && "$code" != 403 ]]; then
+  pass "the GitHub API answers through the proxy (${code})"
+else
+  flunk "the GitHub API answers through the proxy (got ${code}); add api.github.com to egress-allow"
+fi
+
 if curl -fsS -m 10 -o /dev/null -x "$proxy" https://example.com 2>/dev/null; then
   flunk "a host off the allowlist is refused over https"
 else

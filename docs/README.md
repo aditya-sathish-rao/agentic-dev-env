@@ -432,6 +432,8 @@ tailscale.nix       system: the Tailscale daemon
 home.nix            user: packages, zsh, starship, link table, rendered VS Code settings
 home/               the config files (wezterm, nvim, herdr, vscode, .pi, .agents/skills, AGENTS.md)
 docs/adr/           one record per decision that is not obvious from the code
+task.md             how the sandbox works, piece by piece, with the reasoning
+lavish.md           the review of the sandbox: findings, evidence, and order of work
 GLOSSARY.md         shared terms
 rebuild.sh          the only entry point: fresh machine, or re-apply changes
 .githooks/check     formatter and lint module (--staged, --all)

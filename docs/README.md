@@ -306,31 +306,53 @@ moving the fleet in.
 ```sh
 nix run .#crew-sandbox -- up               # create it on first use, then start it
 nix run .#crew-sandbox -- shell            # a shell as the administration account
+nix run .#crew-sandbox -- apply            # install the pinned guest toolchain (inside the VM)
 nix run .#crew-sandbox -- check            # the phase-1 gate: the box
 nix run .#crew-sandbox -- check proxy      # phase 3a: the egress proxy
 nix run .#crew-sandbox -- check model      # phase 3a-2: the model key stays on the host
 nix run .#crew-sandbox -- check toolchain  # phase 2: the guest's tools
 nix run .#crew-sandbox -- check broker     # phase 3b: one repo, one token, revocable
+nix run .#crew-sandbox -- check all        # every phase above, in one run
 nix run .#crew-sandbox -- proxy            # egress and model gateway, in the foreground
 nix run .#crew-sandbox -- broker           # mint task tokens, in the foreground
+nix run .#crew-sandbox -- ruleset <repo>   # apply the pinned branch ruleset (human merge only)
 nix run .#crew-sandbox -- kill             # stop the VM and revoke every issued token
 ```
 
 What the definition and the two host services guarantee, and what each gate re-proves:
 
-- **Nothing from `$HOME` is mounted.** `mounts: []`, no `portForwards` entries, no agent
-  forwarding. The only host-to-guest channel is SSH, which `limactl shell` uses. Lima adds one
-  forward of its own, host time sync on UDP 323, which is inbound-only and dropped by the
-  guest's input chain along with everything else.
+- **Nothing from `$HOME` is mounted, and nothing the guest listens on reaches the host.**
+  `mounts: []`, no agent forwarding, and an `ignore` port-forward rule over the whole range.
+  That rule is not decoration: `portForwards: []` does **not** disable Lima's forwarding. The
+  host agent always appends a fallback that publishes every listener inside the guest on the
+  host's own `127.0.0.1`, on the same port, for TCP and UDP alike, and it dials the guest
+  through the guest agent rather than the network, so the guest's input chain never sees the
+  connection — any crewmate could have put a service on the operator's loopback with one
+  command. `check box` starts a listener as `agent`, bound both to `0.0.0.0` and to
+  `127.0.0.1`, and fails if the host loopback answers. The only host-to-guest channel left is
+  SSH, which `limactl shell` uses.
 - **Agents get no root.** `agent` is created without sudo and in no privileged group, so
   `sudo -n true`, `nft flush ruleset` and writing `/etc/nftables.conf` all fail.
 - **Egress is default-deny, and one allowlist wide.** One root-owned nftables table drops
   everything except SSH from the host subnet and one port on the host. That port is
   `crew-sandbox proxy`: a CONNECT proxy holding no credentials, which refuses any destination
-  [nix/crew-sandbox/egress-allow](nix/crew-sandbox/egress-allow) does not name and any port
-  other than 443 and 80. DNS is closed with the rest of the internet rather than left open as
+  [nix/crew-sandbox/egress-allow](nix/crew-sandbox/egress-allow) does not name, and allows
+  exactly two shapes of traffic to a named host: a TLS tunnel on 443 and a plain request on 80. DNS is closed with the rest of the internet rather than left open as
   a covert channel. The proxy binds `127.0.0.1`, which the guest reaches at `192.168.5.2`
   because Lima forwards loopback to the guest's gateway, so nothing is exposed to the LAN.
+- **The allowlist names hosts, and the proxy enforces the name.** An allowlisted destination
+  is not enough on its own, because one CDN address can serve thousands of unrelated sites.
+  So over plain HTTP the proxy discards the guest's `Host` and sets it from the destination,
+  and over TLS it reads the server name out of the ClientHello and refuses a tunnel whose SNI
+  is not the name that was allowed; `CONNECT` is refused on port 80, where that check cannot
+  see anything. A wildcard entry therefore grants the subdomains it names and nothing else.
+  `check proxy` proves both halves against a host that is off the allowlist and shares a CDN
+  address with one that is on it, and `proxy.mjs --selftest` proves the parser without a
+  network. The residual limit is honest: TLS content is opaque to a CONNECT proxy, so the
+  guarantee is that a guest can only reach allowlisted _hostnames_, not that it can only send
+  them ordinary traffic. A client that skips certificate validation can present an allowed
+  SNI and a different inner `Host`; closing that would require terminating TLS inside the
+  proxy, which the model gateway exists to avoid.
 - **No agent holds the model key.** pi 1.5.2 can point a built-in provider at another
   endpoint through `models.json`, so the guest does not need a TLS-terminating proxy. Its
   `deepseek` provider points at `http://host.lima.internal:3128/model`, a gateway route on
@@ -346,15 +368,27 @@ What the definition and the two host services guarantee, and what each gate re-p
   with `contents` and `pull_requests` only. GitHub refuses a token for anything outside the
   App's installation, so the scope survives a compromised caller. The App private key stays
   in the vault and is injected at start with `av inject`, never written to disk.
-  `check broker` runs on the host without the VM: it mints a token for `crew-broker`, writes
-  and deletes a probe file there, is refused a write on `agentic-dev-env`, revokes the token
-  and sees GitHub refuse it afterwards. It is the one gate that creates a real commit pair in
-  the throwaway `crew-broker` repository. Binding a token to the task that asked is the one
-  3b item left: it needs the spawn path that moves in with phase 4, which is what knows each
-  task's repository.
-- **A kill switch revokes and stops.** `crew-sandbox kill` stops the VM and asks a running
-  broker to revoke every token it issued. Tokens are kept in the broker's memory only, so a
-  broker restart also strands them; the command makes that immediate and deliberate.
+  `check broker` runs on the host without the VM. It asserts two opposite things, and both
+  must hold: the token **can** create an `agent/gate-*` branch and write to it, and the
+  **default branch refuses** the same token. The second half is the point. A
+  `contents: write` token that could write the default branch could also merge its own pull
+  request, so the human-merge backstop would not exist.
+  [nix/crew-sandbox/checks/broker-ruleset.json](nix/crew-sandbox/checks/broker-ruleset.json)
+  is that backstop: a repository ruleset requiring one approving review, a fresh approval
+  after the last push, resolved threads, and no force-push or deletion, with an empty
+  `bypass_actors` list so the App is not exempt. Apply it with
+  `crew-sandbox ruleset <owner/repo>`; the command is idempotent and prints the rules now in
+  force. The gate fails, naming the ruleset, when it is missing. Binding a token to the task
+  that asked is the one 3b item left: it needs the spawn path that moves in with phase 4,
+  which is what knows each task's repository.
+- **A kill switch stops, then revokes.** `crew-sandbox kill` stops the VM first and only then
+  asks a running broker to revoke every token it issued. The order is the point: while the
+  broker is unauthenticated (C1), revoking first leaves a window where a crewmate mints a
+  fresh token after the sweep and outlives it. With the guest down nothing can ask, so the
+  revoke sweeps a set that can no longer grow. A failed stop does not skip the revoke: the
+  failure is reported, the revoke still runs, and the command exits non-zero because either
+  half alone leaves a credential alive. Tokens are kept in the broker's memory only, so a
+  broker restart also strands them.
 - **Bootstrap cannot reopen any of it.** Lima re-runs provision scripts on every boot, so the
   script touches `/etc/crew-provisioned` and exits early next time, when there is no network
   left to install from.
@@ -365,7 +399,14 @@ on an agent's `PATH`. The proxy runs only while you run it: `crew-sandbox proxy`
 foreground (it needs the VM for the gateway token and the vault for the key), or for the
 duration of `check proxy` and `check model`, which start and stop their own. `check proxy`
 starts a keyless proxy, so `check model` refuses to run while another proxy holds port 3128,
-and `check model` starts a keyed one.
+and `check model` starts a keyed one. Each phase stops the service it started, so a run leaves
+no listener behind.
+
+`check all` runs every phase in one process, which is the only way to catch a boundary that
+holds in isolation and fails in combination. It also runs the allowlist assertions against
+the keyed proxy, so `check model` cannot report a key that stays home while the allowlist is
+wrong. The gate stages its scripts in `/run/crew-gate`, a root-owned directory on tmpfs that
+`agent` cannot write; a failed copy is reported as tampering rather than as an rsync error.
 
 ## Secrets
 
@@ -432,8 +473,8 @@ tailscale.nix       system: the Tailscale daemon
 home.nix            user: packages, zsh, starship, link table, rendered VS Code settings
 home/               the config files (wezterm, nvim, herdr, vscode, .pi, .agents/skills, AGENTS.md)
 docs/adr/           one record per decision that is not obvious from the code
-task.md             how the sandbox works, piece by piece, with the reasoning
-lavish.md           the review of the sandbox: findings, evidence, and order of work
+.lavish/crew-sandbox-task.md    how the sandbox works, piece by piece, with the reasoning
+.lavish/crew-sandbox-review.md  the review of the sandbox: findings, evidence, order of work
 GLOSSARY.md         shared terms
 rebuild.sh          the only entry point: fresh machine, or re-apply changes
 .githooks/check     formatter and lint module (--staged, --all)

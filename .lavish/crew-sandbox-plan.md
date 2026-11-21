@@ -3,7 +3,6 @@
 **Status:** plan, not implemented
 **Date:** 2026-11-20
 **Subject:** `agentic-dev-env` @ `5d2be4a` + working tree
-**HTML twin:** `.lavish/crew-sandbox-plan.html` (review surface; this file is the portable copy)
 
 Every claim below was checked against this tree and this machine on 2026-11-20. Section
 [How to verify this plan](#how-to-verify-this-plan) carries the commands and their literal
@@ -486,7 +485,5 @@ regardless of design.
 - This file is standalone. The two diagrams are Mermaid, which renders on GitHub, in VS Code
   with a Markdown preview that supports it, and in most Markdown viewers; the HTML twin keeps
   the hand-drawn versions.
-- The HTML twin (`.lavish/crew-sandbox-plan.html`) is the annotation surface. Export it with
-  `lavish-axi export .lavish/crew-sandbox-plan.html --out .lavish/crew-sandbox-plan.export.html`
   for a single portable file with local assets inlined.
 - Nothing in this plan is implemented. No file outside `.lavish/` has changed.

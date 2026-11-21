@@ -32,6 +32,7 @@ let
       model_check=${./checks/model.sh}
       toolchain_check=${./checks/toolchain.sh}
       broker_check=${./checks/broker.sh}
+      broker_ruleset=${./checks/broker-ruleset.json}
       expected_pi=${piPackage.version}
       proxy_script=${proxyScript}
       egress_allow=${egressAllow}
@@ -44,6 +45,9 @@ let
 in
 pkgs.writeShellApplication {
   name = "crew-sandbox";
+  # Deliberately no gh here: the operator's hardened gh reads its token from the
+  # macOS keyring, and a nixpkgs gh earlier on PATH would shadow it and fail with
+  # 401. `crew-sandbox ruleset` uses whatever gh the operator already trusts.
   runtimeInputs = [
     pkgs.lima
     pkgs.coreutils
@@ -58,6 +62,10 @@ pkgs.writeShellApplication {
     broker_script=${brokerScript}
     broker_app_id=${brokerAppId}
     broker_repos_file=${reposAllow}
+    broker_ruleset=${./checks/broker-ruleset.json}
+    # The flake the guest applies with home-manager. Selecting it by store path
+    # avoids needing network access or a registry entry inside the guest.
+    guest_flake=${../..}
     ${builtins.readFile ./crew-sandbox.sh}
   '';
 }

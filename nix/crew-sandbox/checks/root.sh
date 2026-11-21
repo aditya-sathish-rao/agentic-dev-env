@@ -24,11 +24,35 @@ else
   flunk "input and output both default to drop (found $drops)"
 fi
 
+# 3128 is the only way out. 3129 is the token broker, which is an operator tool:
+# while it authenticates no caller, a reachable broker lets any crewmate mint
+# itself a GitHub token, so the port must stay closed until phase 4's spawn path
+# gives it a per-task secret.
 ports=$(nft list chain inet crew output | grep -oE 'dport [0-9]+ accept' | awk '{print $2}' | sort -u | tr '\n' ' ')
-if [[ "$ports" == "3128 3129 " ]]; then
-  pass "the only reachable host ports are the proxy and the broker"
+if [[ "$ports" == "3128 " ]]; then
+  pass "the only reachable host port is the egress proxy (${ports% })"
 else
-  flunk "the only reachable host ports are the proxy and the broker (got '${ports}')"
+  flunk "the only reachable host port is the egress proxy (got '${ports}')"
+fi
+
+if [[ "$ports" == *"3129"* ]]; then
+  flunk "the token broker is not reachable from the guest (3129 is open)"
+else
+  pass "the token broker is not reachable from the guest"
+fi
+
+# The gate stages its scripts here and then runs them as root. If `agent` can write
+# this directory it can pre-own the path root executes, so the ownership is part of
+# the boundary, not a detail of the driver.
+if [[ -d /run/crew-gate ]]; then
+  gate_owner=$(stat -c '%U:%a' /run/crew-gate)
+  if [[ "$gate_owner" == root:* ]]; then
+    pass "the gate directory is owned by root ($gate_owner)"
+  else
+    flunk "the gate directory is owned by root (got $gate_owner)"
+  fi
+else
+  flunk "the gate directory exists"
 fi
 
 owner=$(stat -c '%U:%a' /etc/nftables.conf)

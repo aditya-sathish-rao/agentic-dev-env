@@ -2,7 +2,7 @@
 
 A walkthrough of the code in [`nix/crew-sandbox/`](nix/crew-sandbox), written to be read
 before the next phase. The review of what is missing is in
-[lavish.md](lavish.md); this file explains what exists.
+[crew-sandbox-review.md](crew-sandbox-review.md); this file explains what exists.
 
 Terms are defined in [GLOSSARY.md](GLOSSARY.md).
 
@@ -361,6 +361,35 @@ mangled key fails on the Mac instead of as a confusing `401` from GitHub later.
 the broker cannot hand out a token it has forgotten, so a crash narrows access rather than
 widening it. `/revoke-all` makes the same thing deliberate.
 
+**Why the kill switch stops the VM before it revokes.** The broker is still unauthenticated
+(see C1 in [crew-sandbox-review.md](crew-sandbox-review.md)), so any crewmate can ask for a token at any moment.
+Revoking first would leave a gap: a token minted just after the sweep would survive it, and
+`kill` would report success while a live credential remained. Stopping the VM first means
+nothing can ask, so the revoke sweeps a set that can no longer grow.
+
+```mermaid
+flowchart LR
+    subgraph WRONG["Revoke, then stop (old)"]
+        R1["sweep tokens"] --> GAP["a crewmate mints<br/>a fresh token"] --> S1["VM stops"]
+        GAP -.-> LIVE["credential survives<br/>the kill switch"]
+    end
+
+    subgraph RIGHT["Stop, then revoke (now)"]
+        S2["VM stops"] --> DEAD["nothing can ask"] --> R2["sweep tokens"]
+        R2 -.-> CLEAN["no credential remains"]
+    end
+
+    style GAP fill:#4a1d1d,stroke:#c0392b,color:#fff
+    style LIVE fill:#4a1d1d,stroke:#c0392b,color:#fff
+    style DEAD fill:#1d3a2a,stroke:#2eab5f,color:#fff
+    style CLEAN fill:#1d3a2a,stroke:#2eab5f,color:#fff
+```
+
+The command also survives a failed stop. `writeShellApplication` turns on `errexit`, so an
+unguarded `limactl stop` failure would abort the script _before_ the revoke — the exact
+opposite of what a kill switch is for. The failure is caught, reported, the revoke still
+runs, and the command exits non-zero, because either half alone leaves a credential alive.
+
 ### 6. The gates
 
 > **/bro:** A gate does not read the config file and say 'looks right.' It logs in as the worker and
@@ -452,7 +481,57 @@ sequenceDiagram
 **Why the first mate asks and the crewmate does not.** The first mate is the one that knows
 which repository a task belongs to. A crewmate that could ask for itself could ask for
 anything on the list. Today this is a design intention rather than an enforced rule — see
-finding C1 in the review, which is the single most important thing to fix before Phase 4.
+finding C1 in [crew-sandbox-review.md](crew-sandbox-review.md), which is the single most important thing to fix before
+Phase 4.
+
+### What stops a task merging its own work
+
+A scoped token is not enough on its own. The token can write `contents`, and a writer that
+can reach the default branch can merge the pull request it just opened, so the review step
+would be decoration. The ruleset is what makes review real.
+
+```mermaid
+flowchart TB
+    subgraph TOKEN["The token a crewmate holds"]
+        W["contents: write<br/>pull_requests: write"]
+    end
+
+    subgraph ALLOWED["Allowed"]
+        AB["agent/gate-* branch<br/>create, write, delete"]
+        PR["open a pull request"]
+    end
+
+    subgraph BLOCKED["Refused by the ruleset"]
+        MAIN["push to main"]
+        MERGE["merge without a review"]
+        FF["force-push or delete main"]
+    end
+
+    W --> AB
+    W --> PR
+    W -. "409" .-> MAIN
+    W -. "blocked" .-> MERGE
+    W -. "blocked" .-> FF
+
+    RS["checks/broker-ruleset.json<br/>1 approval, fresh after last push,<br/>threads resolved, bypass_actors: []"]
+    RS -.enforces.-> BLOCKED
+
+    style MAIN fill:#4a1d1d,stroke:#c0392b,color:#fff
+    style MERGE fill:#4a1d1d,stroke:#c0392b,color:#fff
+    style FF fill:#4a1d1d,stroke:#c0392b,color:#fff
+    style RS fill:#1d3a4a,stroke:#2e86ab,color:#fff
+```
+
+**Why `bypass_actors` must stay empty.** GitHub lets a ruleset name actors that skip its
+rules. If the App were on that list, every rule above would still read as "enforced" while
+the token walked straight through. The gate checks the effective rules on the branch, not the
+ruleset file, so a bypass added later fails the gate.
+
+**Why the gate writes to an `agent/` branch now.** The old probe wrote to the default branch
+and deleted the file afterwards. That call only succeeds when nothing protects `main`, so the
+gate passed _because_ the backstop was missing — the test proved the opposite of the plan.
+It now asserts both halves: the token **can** write an agent branch, and the default branch
+**refuses** the same token.
 
 ---
 
@@ -466,6 +545,7 @@ finding C1 in the review, which is the single most important thing to fix before
 | [`proxy.mjs`](nix/crew-sandbox/proxy.mjs)                                     | CONNECT proxy with an allowlist, plus the `/model` gateway                                              |
 | [`egress-allow`](nix/crew-sandbox/egress-allow)                               | the hostnames the proxy will reach                                                                      |
 | [`broker/broker.mjs`](nix/crew-sandbox/broker/broker.mjs)                     | per-task GitHub App tokens, in memory, revocable                                                        |
+| [`checks/broker-ruleset.json`](nix/crew-sandbox/checks/broker-ruleset.json)   | the human-merge backstop: review required, App not exempt                                               |
 | [`repos-allow`](nix/crew-sandbox/repos-allow)                                 | the repositories a task may ask for                                                                     |
 | [`guest/models.json`](nix/crew-sandbox/guest/models.json)                     | points `pi` at the gateway                                                                              |
 | [`guest.nix`](nix/crew-sandbox/guest.nix)                                     | the guest's home-manager module: `pi` and the crew tools                                                |
@@ -482,6 +562,7 @@ nix run .#crew-sandbox -- check toolchain  # phase 2: the tools
 nix run .#crew-sandbox -- check proxy      # phase 3a: the allowlist
 nix run .#crew-sandbox -- check model      # phase 3a-2: the key stays home
 nix run .#crew-sandbox -- check broker     # phase 3b: one repo, one token, revocable
+nix run .#crew-sandbox -- ruleset <repo>   # apply the human-merge backstop (idempotent)
 ```
 
 `check model` and `check broker` need the vault, so they prompt for approval. Both start and
@@ -513,5 +594,5 @@ Stated plainly, because the gates currently pass while these are true:
   credential. The port is even opened in the firewall on purpose.
 - **No red-team run exists.** Phase 5 is a plan, not a script.
 
-The review in [lavish.md](lavish.md) lists each of these
+The review in [crew-sandbox-review.md](crew-sandbox-review.md) lists each of these
 with the evidence and the fix, ordered by effect per unit of work.

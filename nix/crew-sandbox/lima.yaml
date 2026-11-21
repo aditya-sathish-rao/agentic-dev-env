@@ -17,7 +17,19 @@ images:
     digest: "sha256:cf3b8472b84e7de37cdc2d2e9a9bf82b3edf0ab97113a1422eff048f26688e2f"
 
 mounts: []
-portForwards: []
+
+# `portForwards: []` is not "no forwards". The host agent always appends a fallback
+# rule that publishes every listener inside the guest on the host's own 127.0.0.1,
+# on the same port, for all ports and both protocols, and it reaches the guest
+# through the guest agent rather than the network, so the guest's firewall cannot
+# stop it. An `ignore` rule over the whole range removes it; the host agent only
+# honours that rule as the first entry in the list. `guestIPMustBeZero: false`
+# widens the match so it also covers a listener the guest binds to 127.0.0.1 only.
+portForwards:
+  - guestIP: 0.0.0.0
+    guestIPMustBeZero: false
+    proto: any
+    ignore: true
 
 containerd:
   system: false
@@ -105,10 +117,12 @@ provision:
           type filter hook output priority filter; policy drop;
           oif lo accept
           ct state established,related accept
-          # 3128 is the egress proxy, 3129 the token broker. Both are host loopback
-          # reached through the guest's gateway, so nothing is on the LAN.
+          # 3128 is the egress proxy, reached on the guest's gateway. It is the only
+          # port out. The token broker's 3129 is deliberately absent: it is an
+          # operator tool, and while it authenticates no caller a crewmate could
+          # mint itself a GitHub token. Reopen it only with the per-task secret that
+          # phase 4's spawn path injects, and assert it in checks/root.sh.
           ip daddr $gw tcp dport 3128 accept
-          ip daddr $gw tcp dport 3129 accept
         }
       }
       EOF

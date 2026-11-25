@@ -1,4 +1,4 @@
 {
   "shared_quota": true,
-  "default": [{ "harness": "pi", "provider": "deepseek" }]
+  "default": [{ "harness": "pi", "provider": "openrouter" }]
 }

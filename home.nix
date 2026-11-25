@@ -63,7 +63,7 @@ let
     "firstmate/config/supervision-branch-model" = "home/firstmate/supervision-branch-model";
     "firstmate/config/supervision-branch-effort" = "home/firstmate/supervision-branch-effort";
     # Shadows the harness so a crewmate pane, which starts without the key `mate`
-    # injects, gets DEEPSEEK_API_KEY from the vault for its own lifetime; the
+    # injects, gets OPENROUTER_API_KEY from the vault for its own lifetime; the
     # wrapper owns why. ~/.local/bin is first on PATH.
     ".local/bin/pi" = "home/.local/bin/pi";
   }
@@ -232,7 +232,7 @@ assert lib.assertMsg (missingSources == [ ])
         # key rides along for the mate itself only;
         # crewmate panes come from a herdr server that never saw it, so the pi
         # wrapper in ~/.local/bin injects it per crewmate.
-        mate = "(cd ~/firstmate && av inject +DEEPSEEK_API_KEY -- env FM_BACKEND=herdr pi)";
+        mate = "(cd ~/firstmate && av inject +OPENROUTER_API_KEY -- env FM_BACKEND=herdr pi)";
       };
     };
 

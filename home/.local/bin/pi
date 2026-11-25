@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Supply the vault key to a crewmate pane.
 #
-# `mate` injects DEEPSEEK_API_KEY into the first mate only. Crewmate panes are
+# `mate` injects OPENROUTER_API_KEY into the first mate only. Crewmate panes are
 # opened by a herdr server that never saw that key, so a launch that needs one
 # re-runs this wrapper under `av inject` and the worker holds the key only for
 # its own lifetime. An av failure stops the launch instead of leaving pi to run
@@ -31,8 +31,8 @@ case ${1:-} in
   --help | --version | --list-models | auth | update) exec "$real" "$@" ;;
 esac
 
-if [[ -z ${DEEPSEEK_API_KEY:-} ]] && command -v av >/dev/null 2>&1; then
-  exec av inject +DEEPSEEK_API_KEY -- "${BASH_SOURCE[0]}" "$@"
+if [[ -z ${OPENROUTER_API_KEY:-} ]] && command -v av >/dev/null 2>&1; then
+  exec av inject +OPENROUTER_API_KEY -- "${BASH_SOURCE[0]}" "$@"
 fi
 
 exec "$real" "$@"

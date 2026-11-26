@@ -113,7 +113,7 @@ The order matters. Cloning firstmate _before_ the first rebuild is the step peop
 ```mermaid
 flowchart TD
     A["1. Clone firstmate to ~/firstmate<br/>BEFORE the first rebuild"] --> B["2. Clone this repo to ~/github/agentic-dev-env"]
-    B --> C["3. Run ./rebuild.sh"]
+    B --> C["3. Run ./rebuild.sh<br/>(--mini on the mini)"]
     C --> D{"Xcode command line<br/>tools installed?"}
     D -- "no" --> D1["Installer starts and the script stops.<br/>Re-run ./rebuild.sh when it finishes"]
     D1 --> C
@@ -143,10 +143,10 @@ Firstmate is cloned by hand because it updates itself (`/updatefirstmate`), so t
 ```bash
 git clone https://github.com/aditya-sathish-rao/agentic-dev-env.git ~/github/agentic-dev-env
 cd ~/github/agentic-dev-env
-./rebuild.sh
+./rebuild.sh             # primary by default; --mini on the headless Mac mini
 ```
 
-`rebuild.sh` is idempotent and is the only entry point, on a fresh machine and on an existing one. See [How a rebuild works](#how-a-rebuild-works) for what it does. When it finishes, **open a new terminal**.
+`rebuild.sh` is idempotent and is the only entry point, on a fresh machine and on an existing one. With no flag it builds `primary`, so a bare `./rebuild.sh` is right on the Mac you sit at; on the mini, pass `--mini`. See [How a rebuild works](#how-a-rebuild-works) for what it does. When it finishes, **open a new terminal**.
 
 ### Step 3: install the companion CLIs (manual, once)
 
@@ -230,11 +230,13 @@ The first launch reports anything still missing as `MISSING:` and asks before in
 
 ## How a rebuild works
 
-`./rebuild.sh` builds as **you** and activates as **root**. Building as the user keeps the (impure) flake evaluation tied to whoever runs it. Only the final activation needs root, so you see exactly one `sudo` prompt. The reasoning is in [ADR-0004](docs/adr/0004-build-as-user-activate-as-root.md).
+`./rebuild.sh` (or `--mini`) builds as **you** and activates as **root**. Building as the user keeps the (impure) flake evaluation tied to whoever runs it. Only the final activation needs root, so you see exactly one `sudo` prompt. The reasoning is in [ADR-0004](docs/adr/0004-build-as-user-activate-as-root.md).
+
+With no flag the host defaults to `primary`, so a bare `./rebuild.sh` works on the Mac you sit at. The mini has to ask for itself with `--mini`, because the default would build the wrong machine there. A flag that disagrees with `AGENTIC_DEV_ENV_HOST` is an error rather than a silent override.
 
 ```mermaid
 flowchart TD
-    S(["./rebuild.sh"]) --> X{"Xcode CLT<br/>present?"}
+    S(["./rebuild.sh<br/>primary by default"]) --> X{"Xcode CLT<br/>present?"}
     X -- "no" --> XI["Start installer, then stop.<br/>Re-run when done"]
     X -- "yes" --> L["Link the clone to ~/.agentic-dev-env<br/>so every config path resolves<br/>through one place"]
     L --> H["Set core.hooksPath to .githooks"]
@@ -286,7 +288,7 @@ flowchart LR
 | Mode          | Used for                                                                   | To change it                                                                               |
 | ------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | **Linked**    | wezterm, neovim, herdr, pi settings, `AGENTS.md`, skills, firstmate config | Edit the file in the repo. **No rebuild.**                                                 |
-| **Generated** | `~/.config/git/config`                                                     | Edit `home.nix`, then `./rebuild.sh`                                                       |
+| **Generated** | `~/.config/git/config`                                                     | Edit `home.nix`, then `./rebuild.sh` (or `--mini`)                                         |
 | **Seeded**    | VS Code `settings.json`                                                    | VS Code owns it after the first seed. Delete it and run `./rebuild.sh` to restore defaults |
 
 VS Code is the odd one out because its atomic saves cannot write through a link into the read-only Nix store. See [ADR-0008](docs/adr/0008-vscode-owns-its-settings.md).
@@ -378,15 +380,21 @@ Homebrew no longer prunes, so the `claude-code` cask from the old harness surviv
 
 Skills live under `home/.agents/skills`. Every directory there is linked one level deep into both `~/.agents/skills` (pi and Copilot) and `~/.claude/skills` (Claude Code), so **adding a skill needs no change to `home.nix`**.
 
+A skill that belongs to one machine only goes in `home/.agents/skills-primary` or `home/.agents/skills-mini`. Those directories are linked the same way, but only on the host they name, so a skill in `skills-primary` never appears on the mini. The host comes from the configuration name in `flake.nix`, not from the environment, so CI still evaluates both directories.
+
 ```mermaid
 flowchart LR
-    SK["home/.agents/skills/<br/>one directory per skill"] --> A["~/.agents/skills<br/>pi and Copilot"]
+    SK["home/.agents/skills/<br/>every machine"] --> A["~/.agents/skills<br/>pi and Copilot"]
     SK --> B["~/.claude/skills<br/>Claude Code"]
+    SP["home/.agents/skills-primary/<br/>primary only"] --> A
+    SP --> B
+    SM["home/.agents/skills-mini/<br/>mini only"] --> A
+    SM --> B
     AG["home/AGENTS.md"] --> C["~/.pi/agent/AGENTS.md"]
     AG --> D["~/.claude/CLAUDE.md<br/>~/.claude/AGENTS.md"]
 ```
 
-Vendored skills are re-copied here to update: `lavish` (MIT, from [kunchenguid/lavish-axi](https://github.com/kunchenguid/lavish-axi)), `stow`, and the pstack set (`bro`, `teach`, and the `principle-*` leaves in `software-engineering-principles/`).
+Vendored skills are re-copied here to update: `lavish` (MIT, from [kunchenguid/lavish-axi](https://github.com/kunchenguid/lavish-axi)), `stow`, the pstack set (`bro`, `teach`, and the `principle-*` leaves in `software-engineering-principles/`), and the 27 skills of [mattpocock/skills](https://github.com/mattpocock/skills) (MIT, pinned at `49dd158d1076134a641b33efb035946536778336`, the commit the `mattpocock-skills` entry in Anthropic's `claude-plugins-official` marketplace resolves to). Upstream's `teach` is vendored as `matt-pocock-teach`, because the pstack `teach` already owns that name.
 
 The engineering principles apply to every agent and task. Their leaves stay exactly as pstack ships them, including `disable-model-invocation: true`, so the local `engineering-principles` skill is the model-invocable index that routes to them, and `home/AGENTS.md` makes that index mandatory for harnesses that do not surface skills. See [ADR-0007](docs/adr/0007-engineering-principles-are-skills.md).
 
@@ -457,21 +465,22 @@ flowchart TD
 
 ## Day to day cheat sheet
 
-| I want to...                                                     | Do this                                                                                                                                    |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Apply a change to `home.nix`, `configuration.nix` or `flake.nix` | `./rebuild.sh`                                                                                                                             |
-| Change wezterm, neovim, herdr, pi or skill configs               | Edit the file under `home/`. No rebuild                                                                                                    |
-| Change the default model                                         | Edit `home/.pi/agent/settings.json`, restart `mate`                                                                                        |
-| Change VS Code settings                                          | Edit `home/.config/vscode/settings.json`, delete `~/Library/.../settings.json` (the real file), then `./rebuild.sh`                        |
-| Change git config                                                | Edit `home.nix`, then `./rebuild.sh`                                                                                                       |
-| Update pi                                                        | `nix flake update pi`, then `./rebuild.sh`. **Do not** run `pi update pi`: the installed copy lives in the read-only store                 |
-| Update the Automic Vault tap                                     | `nix flake update automic-vault-tap`, then `./rebuild.sh`                                                                                  |
-| Add a skill                                                      | Add a directory under `home/.agents/skills`. No `home.nix` change                                                                          |
-| Add a new config file                                            | Add a `$HOME`-relative target and repo path to the link table in `home.nix` via `config.lib.file.mkOutOfStoreSymlink`, then `./rebuild.sh` |
-| Add a Homebrew app                                               | Add it to `configuration.nix`, then `./rebuild.sh`                                                                                         |
-| Remove a Homebrew app                                            | Remove it from `configuration.nix`, **and** `brew uninstall --cask <name>` (Homebrew is additive)                                          |
-| Store or rotate a secret                                         | `av save NAME`                                                                                                                             |
-| Run the checks by hand                                           | `.githooks/check --all`                                                                                                                    |
+| I want to...                                                     | Do this                                                                                                                                                  |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Apply a change to `home.nix`, `configuration.nix` or `flake.nix` | `./rebuild.sh` (or `--mini`)                                                                                                                             |
+| Change wezterm, neovim, herdr, pi or skill configs               | Edit the file under `home/`. No rebuild                                                                                                                  |
+| Change the default model                                         | Edit `home/.pi/agent/settings.json`, restart `mate`                                                                                                      |
+| Change VS Code settings                                          | Edit `home/.config/vscode/settings.json`, delete `~/Library/.../settings.json` (the real file), then `./rebuild.sh`                                      |
+| Change git config                                                | Edit `home.nix`, then `./rebuild.sh` (or `--mini`)                                                                                                       |
+| Update pi                                                        | `nix flake update pi`, then `./rebuild.sh` (or `--mini`). **Do not** run `pi update pi`: the installed copy lives in the read-only store                 |
+| Update the Automic Vault tap                                     | `nix flake update automic-vault-tap`, then `./rebuild.sh` (or `--mini`)                                                                                  |
+| Add a skill for every machine                                    | Add a directory under `home/.agents/skills`. No `home.nix` change                                                                                        |
+| Add a skill for one machine only                                 | Add a directory under `home/.agents/skills-primary` or `home/.agents/skills-mini`. No `home.nix` change                                                  |
+| Add a new config file                                            | Add a `$HOME`-relative target and repo path to the link table in `home.nix` via `config.lib.file.mkOutOfStoreSymlink`, then `./rebuild.sh` (or `--mini`) |
+| Add a Homebrew app                                               | Add it to `configuration.nix`, then `./rebuild.sh` (or `--mini`)                                                                                         |
+| Remove a Homebrew app                                            | Remove it from `configuration.nix`, **and** `brew uninstall --cask <name>` (Homebrew is additive)                                                        |
+| Store or rotate a secret                                         | `av save NAME`                                                                                                                                           |
+| Run the checks by hand                                           | `.githooks/check --all`                                                                                                                                  |
 
 ## Repository layout
 
@@ -515,7 +524,7 @@ home.nix              user: packages, zsh, starship, link table, rendered VS Cod
 home/                 the config files (wezterm, nvim, herdr, vscode, .pi, .agents/skills, AGENTS.md)
 docs/adr/             one record per decision that is not obvious from the code
 GLOSSARY.md           shared terms
-rebuild.sh            the only entry point: fresh machine, or re-apply changes
+rebuild.sh            the only entry point: fresh machine, or re-apply changes (primary by default)
 .githooks/check       formatter and lint module (--staged, --all)
 .githooks/pre-commit  git hook, calls check --staged
 .github/workflows/    CI that runs check --all on macOS
@@ -528,7 +537,7 @@ selene.toml           Lua lint rules (.selene/vim.yml defines Neovim globals)
 
 Most of this needs no changes, because the identity is dynamic.
 
-- **Another user, home or host.** Set `AGENTIC_DEV_ENV_USER`, `AGENTIC_DEV_ENV_HOME` and `AGENTIC_DEV_ENV_HOST`. `AGENTIC_DEV_ENV_HOST` names the `darwinConfigurations` attribute, not the machine hostname.
+- **Another user, home or host.** Set `AGENTIC_DEV_ENV_USER`, `AGENTIC_DEV_ENV_HOME` and `AGENTIC_DEV_ENV_HOST`. `AGENTIC_DEV_ENV_HOST` names the `darwinConfigurations` attribute, not the machine hostname, and must agree with the `--primary`/`--mini` flag.
 - **Another config file.** See the [cheat sheet](#day-to-day-cheat-sheet). A file whose content Nix generates is rendered or seeded instead of linked, depending on whether the application itself writes it.
 - **Homebrew is additive.** With `homebrew.onActivation.cleanup = "none"`, `brews` and `casks` are installed and upgraded and everything else on the machine is left alone. The price: deleting an entry here does not uninstall it. Run `brew uninstall --cask <name>` (or `brew zap <name>`). See [ADR-0006](docs/adr/0006-homebrew-is-additive.md).
 - **The Automic Vault tap.** The cask is not in homebrew-cask, so its tap is a flake input (`automic-vault-tap`, `flake = false`) installed by `nix-homebrew.taps`. Taps stay mutable on purpose, and the cask entry must stay fully qualified and `trusted`. See [ADR-0001](docs/adr/0001-homebrew-taps-stay-mutable.md).
@@ -543,13 +552,15 @@ Most of this needs no changes, because the identity is dynamic.
 | **Install av CLI** refuses to install                          | `/usr/local/bin` is owned by your user                           | `sudo chown root:wheel /usr/local/bin`, then click Install again                                         |
 | `git clone` of firstmate fails with a non-empty directory      | The rebuild ran first and created `~/firstmate/config/`          | `rm -rf ~/firstmate` (it is empty of real content), then clone again                                     |
 | `rebuild.sh` stops right after starting an installer           | Xcode command line tools were missing                            | Wait for the installer, then re-run `./rebuild.sh`                                                       |
+| `rebuild.sh` built the wrong machine                           | No flag was given, so it defaulted to `primary`                  | Pass `--mini` on the mini                                                                                |
+| `rebuild.sh` says the flag conflicts with the env var          | `AGENTIC_DEV_ENV_HOST` disagrees with the flag                   | Drop one of them, or make them agree                                                                     |
 | `rebuild.sh` refuses to link `~/.agentic-dev-env`              | `~/.agentic-dev-env` is already a real directory                 | Move or remove that directory, then re-run                                                               |
 | A config file became `<path>.hm-bak`                           | A plain file was in the way of a managed link                    | Expected. Diff it against the new link, keep what you need, delete the backup                            |
 | `mate` prints `MISSING:` lines                                 | A companion CLI is not installed                                 | Install it as in [Step 3](#step-3-install-the-companion-clis-manual-once), or approve what `mate` offers |
 | `mate` cannot clone or open PRs                                | `gh` is not hardened or healthy                                  | `av harden gh`, then `av doctor gh`                                                                      |
 | A crewmate pane exits immediately                              | `av` failed, and the wrapper stops instead of running signed out | Check the vault app is running and the launcher is allowed                                               |
-| VS Code settings changes from the repo are ignored             | VS Code owns its real settings file after the first seed         | Delete the real file and run `./rebuild.sh`                                                              |
-| `pi update pi` fails                                           | The installed copy is in the read-only store                     | `nix flake update pi`, then `./rebuild.sh`                                                               |
+| VS Code settings changes from the repo are ignored             | VS Code owns its real settings file after the first seed         | Delete the real file and run `./rebuild.sh` (or `--mini`)                                                |
+| `pi update pi` fails                                           | The installed copy is in the read-only store                     | `nix flake update pi`, then `./rebuild.sh` (or `--mini`)                                                 |
 | An app you removed from `configuration.nix` is still installed | Homebrew is additive                                             | `brew uninstall --cask <name>`                                                                           |
 
 ## Security scan findings

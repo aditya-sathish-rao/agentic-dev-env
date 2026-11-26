@@ -33,6 +33,33 @@
         "type": "github"
       }
     },
+    "crew-sandbox": {
+      "inputs": {
+        "home-manager": [
+          "home-manager"
+        ],
+        "nix-darwin": [
+          "nix-darwin"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1795712404,
+        "narHash": "sha256-EIq4oB5yYBoA62andTsjs4+0q5NhoAnbmqTj4Dt9kuU=",
+        "owner": "aditya-sathish-rao",
+        "repo": "crew-sandbox",
+        "rev": "9e3dd9a846d32f042f0e6e188dbf1485528ba130",
+        "type": "github"
+      },
+      "original": {
+        "owner": "aditya-sathish-rao",
+        "ref": "v0.1.0",
+        "repo": "crew-sandbox",
+        "type": "github"
+      }
+    },
     "home-manager": {
       "inputs": {
         "nixpkgs": [
@@ -164,6 +191,7 @@
     "root": {
       "inputs": {
         "automic-vault-tap": "automic-vault-tap",
+        "crew-sandbox": "crew-sandbox",
         "home-manager": "home-manager",
         "nix-darwin": "nix-darwin",
         "nix-homebrew": "nix-homebrew",

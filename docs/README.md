@@ -43,10 +43,11 @@ the defaults do not fit.
 ```sh
 git clone https://github.com/aditya-sathish-rao/agentic-dev-env.git ~/github/agentic-dev-env
 cd ~/github/agentic-dev-env
-./rebuild.sh
+./rebuild.sh             # primary by default; --mini on the headless Mac mini
 ```
 
-`rebuild.sh` is the only entry point, and it is idempotent. On a fresh machine and on an
+`rebuild.sh` is the only entry point, and it is idempotent. With no flag it builds `primary`,
+so a bare `./rebuild.sh` is right on the Mac you sit at; the mini passes `--mini`. On a fresh machine and on an
 existing one it does, in order:
 
 1. Checks the Xcode command line tools. If they are missing it starts the installer and
@@ -75,7 +76,7 @@ else the crew needs, firstmate's checkout included, is installed by `./rebuild.s
 ## Day to day
 
 ```sh
-./rebuild.sh    # apply config changes
+./rebuild.sh             # apply config changes (--mini on the mini)
 ```
 
 Most edits need no rebuild at all, because config files are linked into the repo. Generated
@@ -297,27 +298,30 @@ Worktrees isolate git state, not authority. A crewmate runs as you: your files, 
 token, your network. The boundary is one Linux VM around the fleet, declared here like
 everything else.
 
-[nix/crew-sandbox/lima.yaml](nix/crew-sandbox/lima.yaml) is that VM: Lima on Apple's `vz`
-driver, Ubuntu 26.04 LTS pinned by image digest. It will hold herdr, the first mate, the
-crewmates and the worktree pool. What exists today is the box, the egress proxy, the model
-gateway, the guest toolchain and the GitHub token broker, each with a gate; what is left is
-moving the fleet in.
+[`crew-sandbox` v0.1.0](https://github.com/aditya-sathish-rao/crew-sandbox) defines that VM:
+Lima on Apple's `vz` driver, Ubuntu 26.04 LTS pinned by image digest. This flake consumes
+its CLI and guest/host modules; the guest fleet is passed from this repository.
 
 ```sh
 nix run .#crew-sandbox -- up               # create it on first use, then start it
-nix run .#crew-sandbox -- shell            # a shell as the administration account
-nix run .#crew-sandbox -- apply            # install the pinned guest toolchain (inside the VM)
-nix run .#crew-sandbox -- check            # the phase-1 gate: the box
+nix run .#crew-sandbox -- run -- <command> # run a command as agent in the guest
+nix run .#crew-sandbox -- check guest      # verify the guest boundary
 nix run .#crew-sandbox -- check proxy      # phase 3a: the egress proxy
 nix run .#crew-sandbox -- check model      # phase 3a-2: the model key stays on the host
 nix run .#crew-sandbox -- check toolchain  # phase 2: the guest's tools
 nix run .#crew-sandbox -- check broker     # phase 3b: one repo, one token, revocable
-nix run .#crew-sandbox -- check all        # every phase above, in one run
-nix run .#crew-sandbox -- proxy            # egress and model gateway, in the foreground
-nix run .#crew-sandbox -- broker           # mint task tokens, in the foreground
-nix run .#crew-sandbox -- ruleset <repo>   # apply the pinned branch ruleset (human merge only)
-nix run .#crew-sandbox -- kill             # stop the VM and revoke every issued token
+nix run .#crew-sandbox -- check all --expected-tools "pi gh" \
+  --model-upstream https://api.deepseek.com --model-key-env DEEPSEEK_API_KEY \
+  --app-id 5853565 --other-repo aditya-sathish-rao/agentic-dev-env
+nix run .#crew-sandbox -- down              # stop the VM and revoke broker tokens
+nix run .#crew-sandbox -- destroy           # delete the guest and its disk
 ```
+
+The proxy and broker run as launchd user agents after the Darwin configuration is
+activated. The CLI has no `shell`, `apply`, `kill`, or `ruleset` subcommands: use
+`run -- <command>` for guest commands, follow the upstream README's guest-configuration
+steps, and apply the GitHub ruleset manually from the
+[pinned ruleset file](https://github.com/aditya-sathish-rao/crew-sandbox/blob/v0.1.0/verify/gates/broker-ruleset.json).
 
 What the definition and the two host services guarantee, and what each gate re-proves:
 
@@ -336,7 +340,7 @@ What the definition and the two host services guarantee, and what each gate re-p
 - **Egress is default-deny, and one allowlist wide.** One root-owned nftables table drops
   everything except SSH from the host subnet and one port on the host. That port is
   `crew-sandbox proxy`: a CONNECT proxy holding no credentials, which refuses any destination
-  [nix/crew-sandbox/egress-allow](nix/crew-sandbox/egress-allow) does not name, and allows
+  [the pinned egress allowlist](https://github.com/aditya-sathish-rao/crew-sandbox/blob/v0.1.0/internal/allowlist/egress-allow.example) does not name, and allows
   exactly two shapes of traffic to a named host: a TLS tunnel on 443 and a plain request on 80. DNS is closed with the rest of the internet rather than left open as
   a covert channel. The proxy binds `127.0.0.1`, which the guest reaches at `192.168.5.2`
   because Lima forwards loopback to the guest's gateway, so nothing is exposed to the LAN.
@@ -358,13 +362,14 @@ What the definition and the two host services guarantee, and what each gate re-p
   `deepseek` provider points at `http://host.lima.internal:3128/model`, a gateway route on
   the same host proxy. The guest presents a random token created inside the VM
   (`/etc/crew-model-token`), and only the host proxy process ever holds the real
-  `DEEPSEEK_API_KEY`, injected from the vault when `crew-sandbox proxy` starts. The gateway
+  `DEEPSEEK_API_KEY`, injected from the vault when the host proxy agent starts. The gateway
   strips the guest's `Authorization` header, adds the real one, forwards only `GET /models`
   and `POST /chat/completions` to `https://api.deepseek.com`, and refuses the route when
   either half is missing. `check model` proves a request without the token is refused, a
   request with it reaches the API, and no environment value in the guest is the real key.
 - **No agent holds a GitHub credential.** `crew-sandbox broker` mints one App installation
-  token per task, for one repository from [nix/crew-sandbox/repos-allow](nix/crew-sandbox/repos-allow),
+  token per task, for one repository from the
+  [pinned repository allowlist](https://github.com/aditya-sathish-rao/crew-sandbox/blob/v0.1.0/internal/allowlist/repos-allow.example),
   with `contents` and `pull_requests` only. GitHub refuses a token for anything outside the
   App's installation, so the scope survives a compromised caller. The App private key stays
   in the vault and is injected at start with `av inject`, never written to disk.
@@ -373,15 +378,15 @@ What the definition and the two host services guarantee, and what each gate re-p
   **default branch refuses** the same token. The second half is the point. A
   `contents: write` token that could write the default branch could also merge its own pull
   request, so the human-merge backstop would not exist.
-  [nix/crew-sandbox/checks/broker-ruleset.json](nix/crew-sandbox/checks/broker-ruleset.json)
+  [the pinned broker ruleset](https://github.com/aditya-sathish-rao/crew-sandbox/blob/v0.1.0/verify/gates/broker-ruleset.json)
   is that backstop: a repository ruleset requiring one approving review, a fresh approval
   after the last push, resolved threads, and no force-push or deletion, with an empty
   `bypass_actors` list so the App is not exempt. Apply it with
-  `crew-sandbox ruleset <owner/repo>`; the command is idempotent and prints the rules now in
-  force. The gate fails, naming the ruleset, when it is missing. Binding a token to the task
+  by applying that file to the repository; the new CLI has no ruleset-application command.
+  The gate fails, naming the ruleset, when it is missing. Binding a token to the task
   that asked is the one 3b item left: it needs the spawn path that moves in with phase 4,
   which is what knows each task's repository.
-- **A kill switch stops, then revokes.** `crew-sandbox kill` stops the VM first and only then
+- **A kill switch stops, then revokes.** `crew-sandbox down` stops the VM first and only then
   asks a running broker to revoke every token it issued. The order is the point: while the
   broker is unauthenticated (C1), revoking first leaves a window where a crewmate mints a
   fresh token after the sweep and outlives it. With the guest down nothing can ask, so the
@@ -393,14 +398,11 @@ What the definition and the two host services guarantee, and what each gate re-p
   script touches `/etc/crew-provisioned` and exits early next time, when there is no network
   left to install from.
 
-The VM is replaced, not patched: change `lima.yaml`, then `destroy` and `up`, and run the gate
-against the new one. `crew-sandbox` is deliberately not in `home.packages`, so it never lands
-on an agent's `PATH`. The proxy runs only while you run it: `crew-sandbox proxy` in the
-foreground (it needs the VM for the gateway token and the vault for the key), or for the
-duration of `check proxy` and `check model`, which start and stop their own. `check proxy`
-starts a keyless proxy, so `check model` refuses to run while another proxy holds port 3128,
-and `check model` starts a keyed one. Each phase stops the service it started, so a run leaves
-no listener behind.
+The VM is replaced, not patched: change its definition in the pinned `crew-sandbox` input,
+then `destroy` and `up`, and run the gate against the new one. `crew-sandbox` is deliberately
+not in `home.packages`, so it never lands on an agent's `PATH`. The host proxy and broker run
+as launchd user agents; the gates start temporary services only where required and stop the
+services they started.
 
 `check all` runs every phase in one process, which is the only way to catch a boundary that
 holds in isolation and fails in combination. It also runs the allowlist assertions against
@@ -462,10 +464,8 @@ tools.nix           formatters and linters, shared by home.nix and the dev shell
 crew-tools.nix      the crew's runtime CLIs, built from nix/crew-tools
 nix/crew-tools/     pins.nix (versions + hashes), builders.nix (two shapes), locks/,
                     update.sh (the only writer of any of it)
-nix/crew-sandbox/   lima.yaml (the guest's definition), proxy.mjs + egress-allow (its only
-                    way out, and the model gateway), guest/ (pi's proxied provider config),
-                    broker/ + repos-allow (per-task GitHub tokens), default.nix (the
-                    crew-sandbox CLI), check.sh and checks/ (the phase gates)
+crew-sandbox        flake input pinned to v0.1.0: CLI, Lima guest, proxy, broker,
+                    guest Home Manager module, Darwin services and verification gates
 flake.nix           inputs pinned by flake.lock (nixpkgs, nix-darwin, home-manager,
                     nix-homebrew, automic-vault/isotopes tap, pi); evaluated impurely
 configuration.nix   system: macOS defaults, fonts, homebrew taps/brews/casks
@@ -476,7 +476,7 @@ docs/adr/           one record per decision that is not obvious from the code
 .lavish/crew-sandbox-task.md    how the sandbox works, piece by piece, with the reasoning
 .lavish/crew-sandbox-review.md  the review of the sandbox: findings, evidence, order of work
 GLOSSARY.md         shared terms
-rebuild.sh          the only entry point: fresh machine, or re-apply changes
+rebuild.sh          the only entry point: fresh machine, or re-apply changes (primary by default)
 .githooks/check     formatter and lint module (--staged, --all)
 .githooks/pre-commit  git hook, calls check --staged
 .github/workflows/  CI that runs check --all on macOS
@@ -489,10 +489,18 @@ selene.toml         Lua lint rules (.selene/vim.yml defines Neovim globals)
 `~/.pi/agent/AGENTS.md`; the `~/.claude/CLAUDE.md` and `~/.claude/AGENTS.md` links are kept
 for any agent that still looks there. Skills live under `home/.agents/skills`, and every
 directory there is linked one level deep into both `~/.agents/skills` (pi and Copilot) and
-`~/.claude/skills` (Claude Code), so adding a skill needs no change to `home.nix`. Skills
+`~/.claude/skills` (Claude Code), so adding a skill needs no change to `home.nix`. A skill
+that belongs to one machine only goes in `home/.agents/skills-primary` or
+`home/.agents/skills-mini`, which are linked the same way but only on the host they name. The
+host comes from the configuration name in `flake.nix`, not from the environment, so CI still
+evaluates both directories. Skills
 vendored from elsewhere are re-copied here to update: `lavish` (MIT, from
-[kunchenguid/lavish-axi](https://github.com/kunchenguid/lavish-axi)), `stow`, and the pstack
-set (`bro`, `teach`, and the `principle-*` leaves in `software-engineering-principles/`).
+[kunchenguid/lavish-axi](https://github.com/kunchenguid/lavish-axi)), `stow`, the pstack
+set (`bro`, `teach`, and the `principle-*` leaves in `software-engineering-principles/`), and
+the 27 skills of [mattpocock/skills](https://github.com/mattpocock/skills) (MIT, pinned at
+`49dd158d1076134a641b33efb035946536778336`, the commit the `mattpocock-skills` entry in
+Anthropic's `claude-plugins-official` marketplace resolves to). Upstream's `teach` is vendored
+as `matt-pocock-teach`, because the pstack `teach` already owns that name.
 
 The engineering principles apply to every agent and every task. Their leaves stay exactly as
 pstack ships them, including `disable-model-invocation: true`, so the local
@@ -544,8 +552,8 @@ Most of this is no longer needed, because the identity is dynamic.
 
 - **Another user, home or host.** `AGENTIC_DEV_ENV_USER`, `AGENTIC_DEV_ENV_HOME` and
   `AGENTIC_DEV_ENV_HOST` override the identity. `AGENTIC_DEV_ENV_HOST` names the
-  `darwinConfigurations` attribute, not
-  the machine hostname.
+  `darwinConfigurations` attribute, not the machine hostname, and must agree with the
+  `--primary`/`--mini` flag.
 - **Another config.** Add the `$HOME`-relative target and the repo path to the table in
   `home.nix`, mapped through `config.lib.file.mkOutOfStoreSymlink`, then run
   `./rebuild.sh`. A file whose content Nix generates is rendered or seeded instead, depending

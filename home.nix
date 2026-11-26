@@ -4,6 +4,7 @@
   pkgs,
   identity,
   piPackage,
+  hostName,
   ...
 }:
 
@@ -20,21 +21,52 @@ let
   # so the skill links are generated and a new skill needs no edit here. Both
   # roots are linked because pi and Copilot scan ~/.agents/skills while Claude
   # Code scans ~/.claude/skills.
-  skills = builtins.readDir ./home/.agents/skills;
-  skillNames = builtins.filter (name: skills.${name} == "directory") (builtins.attrNames skills);
+  #
+  # A skill that belongs to one machine only goes in home/.agents/skills-<host>,
+  # which is linked on that host and nowhere else. The host comes from the
+  # configuration name in flake.nix, not from the environment, so CI evaluating
+  # both hosts still checks both directories.
   skillRoots = [
     ".agents"
     ".claude"
   ];
-  skillLinks = builtins.listToAttrs (
-    builtins.concatMap (
-      name:
-      map (root: {
-        name = "${root}/skills/${name}";
-        value = "home/.agents/skills/${name}";
-      }) skillRoots
-    ) skillNames
+  skillDirs = [
+    "home/.agents/skills"
+    "home/.agents/skills-${hostName}"
+  ];
+  # One entry per (root, skill) pair, before listToAttrs collapses them.
+  skillNamesByDir = map (
+    dir:
+    let
+      entries = builtins.readDir (./. + "/${dir}");
+    in
+    builtins.filter (name: entries.${name} == "directory") (builtins.attrNames entries)
+  ) skillDirs;
+  skillEntries = builtins.concatLists (
+    builtins.genList (
+      i:
+      let
+        dir = builtins.elemAt skillDirs i;
+        names = builtins.elemAt skillNamesByDir i;
+      in
+      builtins.concatMap (
+        name:
+        map (root: {
+          name = "${root}/skills/${name}";
+          value = "${dir}/${name}";
+        }) skillRoots
+      ) names
+    ) (builtins.length skillDirs)
   );
+  skillLinks = builtins.listToAttrs skillEntries;
+
+  # listToAttrs keeps the first of a duplicate name and drops the rest, so a
+  # per-host skill that reuses a shared skill's name would silently never link.
+  # Catch it here instead of shipping a skill that looks installed and is not.
+  allSkillNames = builtins.concatLists skillNamesByDir;
+  duplicateSkillNames = builtins.filter (
+    name: builtins.length (builtins.filter (other: other == name) allSkillNames) > 1
+  ) allSkillNames;
 
   # $HOME-relative link target -> repo-relative source
   symlinks = {
@@ -74,20 +106,11 @@ let
   missingSources = builtins.filter (target: !builtins.pathExists (./. + "/${symlinks.${target}}")) (
     builtins.attrNames symlinks
   );
-
-  # VS Code saves settings with an atomic temp-file rename and refuses to unlock a
-  # symlink into the read-only store, so settings.json can be neither linked nor
-  # store-rendered. It is seeded once as a real file and then owned by VS Code;
-  # delete it and run ./rebuild.sh to restore these defaults. The formatter paths
-  # depend on the logged-in user, hence the render.
-  vscodeSettings = pkgs.writeText "vscode-settings.json" (
-    builtins.replaceStrings [ "@PROFILE_DIRECTORY@" ] [ config.home.profileDirectory ] (
-      builtins.readFile ./home/.config/vscode/settings.json
-    )
-  );
 in
 assert lib.assertMsg (missingSources == [ ])
   "home.nix: these link targets do not exist in the repo: ${lib.concatStringsSep ", " missingSources}";
+assert lib.assertMsg (duplicateSkillNames == [ ])
+  "home.nix: these skills are defined in more than one skill directory: ${lib.concatStringsSep ", " duplicateSkillNames}";
 {
   home = {
     inherit (identity) username homeDirectory;
@@ -150,18 +173,6 @@ assert lib.assertMsg (missingSources == [ ])
       if [[ -L "$HOME/.config/herdr" ]]; then
         run rm -f "$HOME/.config/herdr"
         run mkdir -p "$HOME/.config/herdr"
-      fi
-    '';
-
-    # VS Code owns its settings once seeded, so a rebuild must not overwrite the
-    # user's own edits. Only a missing file, or the old read-only store link, is
-    # replaced. See ADR-0008.
-    activation.vscode-settings = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
-      settings="$HOME/Library/Application Support/Code/User/settings.json"
-      if [[ ! -e "$settings" || -L "$settings" ]]; then
-        run mkdir -p "$(dirname "$settings")"
-        run rm -f "$settings"
-        run install -m 0644 ${vscodeSettings} "$settings"
       fi
     '';
   };

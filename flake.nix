@@ -85,6 +85,82 @@
             hostModule
           ];
         };
+
+      # The guest's user environment, evaluated for Linux and built inside the VM:
+      # this Mac has no Linux builder, and the guest has its own Nix.
+      #
+      # `nix/guest-pi.nix` overrides the two pi files crew-sandbox ships, so the
+      # guest's provider and model come from personal.nix rather than the module's
+      # DeepSeek default. Without it the gateway would forward to a vendor the
+      # operator may no longer hold a key for.
+      guestHome = home-manager.lib.homeManagerConfiguration {
+        pkgs = nixpkgs.legacyPackages.aarch64-linux;
+        modules = [
+          crew-sandbox.homeManagerModules.default
+          ./nix/guest-pi.nix
+        ];
+        extraSpecialArgs = {
+          inherit personal;
+          extraPackages = [
+            pi.packages.aarch64-linux.default
+          ]
+          ++ builtins.attrValues (
+            import ./nix/crew-tools/default.nix {
+              pkgs = nixpkgs.legacyPackages.aarch64-linux;
+            }
+          );
+        };
+      };
+
+      # One builder for every machine. A host file imports the shared base and
+      # adds only what is true of that machine; see docs/host-split-plan.md.
+      primary = mkDarwin "primary" ./primary.nix;
+      mini = mkDarwin "mini" ./mini.nix;
+
+      # The host services and the guest must name the same provider. They are two
+      # separate configurations, so nothing but this check stops them drifting
+      # apart again. It reads the settled values, not the inputs: the guest's
+      # rendered JSON and the flags launchd would actually be given.
+      #
+      # Read the guest's rendered pi files defensively: if the override is gone the
+      # module ships `source` instead of `text`, and home-manager leaves `text` null.
+      # A missing attribute here would surface as an opaque evaluation error rather
+      # than this check's own message.
+      guestFileText =
+        name:
+        let
+          text = guestHome.config.home.file.${name}.text or null;
+        in
+        if builtins.isString text then text else "";
+      guestModels =
+        let
+          text = guestFileText ".pi/agent/models.json";
+        in
+        if text == "" then { } else builtins.fromJSON text;
+      guestSettings =
+        let
+          text = guestFileText ".pi/agent/settings.json";
+        in
+        if text == "" then { } else builtins.fromJSON text;
+      # A missing provider is the drift this check exists to catch. Defaulting to an
+      # empty set makes the comparisons below false, so the check fails with its own
+      # message instead of an "attribute does not exist" evaluation error.
+      guestProvider = guestModels.providers.${personal.model.provider} or { };
+      proxyArgs = primary.config.services.crew-sandbox._proxyArgs;
+      brokerArgs = primary.config.services.crew-sandbox._brokerArgs;
+      hasFlag =
+        args: flag: value:
+        nixpkgs.lib.hasInfix "--${flag} ${value}" (nixpkgs.lib.concatStringsSep " " args);
+      modelWiringCorrect =
+        (guestProvider.api or null) == "openai-completions"
+        && (guestProvider.baseUrl or null) == "http://host.lima.internal:3130/model"
+        && (guestProvider.apiKey or null) == "!cat /etc/crew-model-token"
+        && (guestSettings.defaultProvider or null) == personal.model.provider
+        && (guestSettings.defaultModel or null) == personal.model.name
+        && (guestSettings.defaultThinkingLevel or null) == personal.model.thinkingLevel
+        && hasFlag proxyArgs "model-upstream" personal.model.upstream
+        && hasFlag proxyArgs "model-key-env" personal.model.keySecret
+        && hasFlag brokerArgs "app-id" personal.githubApp.id;
     in
     {
       # Same tools the checks need, so CI does not pick them up from a runner's
@@ -114,29 +190,35 @@
         }
       );
 
-      # The guest's user environment, evaluated for Linux and built inside the VM:
-      # this Mac has no Linux builder, and the guest has its own Nix.
-      homeConfigurations."agent@aarch64-linux" = home-manager.lib.homeManagerConfiguration {
-        pkgs = nixpkgs.legacyPackages.aarch64-linux;
-        modules = [ crew-sandbox.homeManagerModules.default ];
-        extraSpecialArgs = {
-          inherit personal;
-          extraPackages = [
-            pi.packages.aarch64-linux.default
-          ]
-          ++ builtins.attrValues (
-            import ./nix/crew-tools/default.nix {
-              pkgs = nixpkgs.legacyPackages.aarch64-linux;
-            }
-          );
-        };
-      };
+      homeConfigurations."agent@aarch64-linux" = guestHome;
 
       # One builder for every machine. A host file imports the shared base and
       # adds only what is true of that machine; see docs/host-split-plan.md.
       darwinConfigurations = {
-        primary = mkDarwin "primary" ./primary.nix;
-        mini = mkDarwin "mini" ./mini.nix;
+        inherit primary mini;
       };
+
+      # A buildable assertion, so `nix flake check` and the pre-commit hook fail
+      # when the host and guest stop naming the same provider. The failure is a
+      # build-time `exit 1` with a readable message rather than a `throw`, because a
+      # throw during evaluation surfaces as an opaque "attribute does not exist".
+      checks = forAllSystems (
+        systemPkgs: system:
+        nixpkgs.lib.optionalAttrs (system == "aarch64-darwin") {
+          crew-sandbox-model-wiring = systemPkgs.runCommand "agentic-dev-env-crew-sandbox-model-wiring" { } (
+            if modelWiringCorrect then
+              ''
+                mkdir -p $out
+              ''
+            else
+              ''
+                echo "crew-sandbox model wiring does not match personal.nix:" >&2
+                echo "  the host gateway and the guest's pi config must name the same provider," >&2
+                echo "  model and upstream. See nix/guest-pi.nix and personal.nix." >&2
+                exit 1
+              ''
+          );
+        }
+      );
     };
 }

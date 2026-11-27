@@ -390,6 +390,16 @@ What the definition and the two host services guarantee, and what each gate re-p
   route when either half is missing. `check model` proves a request without the token is
   refused, a request with it reaches the API, and no environment value in the guest is the
   real key.
+
+  Both halves come from `personal.nix`: `crew-sandbox.nix` passes `model.upstream` and
+  `model.keySecret` to the host services, and `nix/guest-pi.nix` renders the guest's
+  `models.json` and `settings.json` from `model.provider`, `model.name` and
+  `model.thinkingLevel`. `checks.aarch64-darwin.crew-sandbox-model-wiring` reads the settled
+  values from both and fails when they disagree, so the two cannot drift apart again. The
+  upstream must be the provider's OpenAI-compatible base, because the gateway appends
+  `/chat/completions` to whatever base it is given: OpenRouter needs the trailing `/api/v1`,
+  DeepSeek's `https://api.deepseek.com` does not.
+
 - **No agent holds a GitHub credential.** `crew-sandbox broker` mints one App installation
   token per task, for one repository from the
   [pinned repository allowlist](https://github.com/aditya-sathish-rao/crew-sandbox/blob/v0.1.0/internal/allowlist/repos-allow.example),

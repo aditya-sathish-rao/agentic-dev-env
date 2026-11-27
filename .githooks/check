@@ -211,6 +211,15 @@ if [[ "$mode" == all ]]; then
         exit 1
       fi
     done
+    # The host services and the guest are separate configurations, so nothing but
+    # this check stops them naming different providers. It reads the settled
+    # values: the guest's rendered pi files and the flags launchd would be given.
+    # Built rather than evaluated, so a mismatch prints the check's own message.
+    if ! nix --extra-experimental-features 'nix-command flakes' build --impure --no-link \
+      ".#checks.aarch64-darwin.crew-sandbox-model-wiring" >/dev/null; then
+      echo "check: the host and guest disagree about the model provider; see personal.nix." >&2
+      exit 1
+    fi
   else
     echo "check: nix not found; skipping the configuration evaluation." >&2
   fi

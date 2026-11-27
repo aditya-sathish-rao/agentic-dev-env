@@ -65,14 +65,19 @@ in
   # directory, with the group and mode that let the `crew` account read the token
   # and nobody else.
   #
+  # This hangs off `postActivation` rather than being its own activation script.
+  # nix-darwin runs a fixed list of scripts and silently ignores any other name, so
+  # a script called `crewModelTokenDirectory` would never run at all. postActivation
+  # is the last step and runs after `users` and `groups`, so the `crew` group exists
+  # by the time the directory is chowned to it.
+  #
   # `vm` alone needs no file: the guest's token is created inside the VM.
-  system.activationScripts.crewModelTokenDirectory = lib.mkIf runsUser {
-    text = ''
-      install -d -m 0750 -o root -g crew ${userTokenDirectory}
-      if [ ! -e ${userTokenFile} ]; then
-        echo "crew: ${userTokenFile} is missing; the model gateway will refuse the crew account" >&2
-        echo "crew: create it with: sudo sh -c 'umask 077; openssl rand -hex 32 > ${userTokenFile}'" >&2
-      fi
-    '';
-  };
+  system.activationScripts.postActivation.text = lib.mkIf runsUser ''
+    echo "crew: preparing ${userTokenDirectory}..." >&2
+    install -d -m 0750 -o root -g crew ${userTokenDirectory}
+    if [ ! -e ${userTokenFile} ]; then
+      echo "crew: ${userTokenFile} is missing; the model gateway will refuse the crew account" >&2
+      echo "crew: create it with: sudo sh -c 'umask 077; openssl rand -hex 32 > ${userTokenFile}'" >&2
+    fi
+  '';
 }

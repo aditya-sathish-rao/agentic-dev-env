@@ -301,7 +301,7 @@ The `agent` Linux user inside the crew VM. Commands run through `crew-sandbox ru
 
 ### model gateway
 
-The `/model` route on the [egress proxy](#egress-proxy). The guest's [pi](#pi) points its configured provider at `http://host.lima.internal:3128/model` through `guest/models.json`; the gateway checks the token in `/etc/crew-model-token`, replaces it with the real `MODEL_API_KEY` that only the proxy process holds, and forwards the request to the upstream set in `crew-sandbox.nix`. It is how the guest gets a model without ever holding the model key. `crew-sandbox check model` proves the route refuses an unauthenticated request and reaches the API with the host's key.
+The `/model` route on the [egress proxy](#egress-proxy). The guest's [pi](#pi) points its configured provider at `http://host.lima.internal:3128/model` through `guest/models.json`; the gateway checks the token in `/etc/crew-model-token`, replaces it with the real `MODEL_API_KEY` that only the proxy process holds, and forwards the request to the upstream set in `crew-sandbox.nix`. It is how the guest gets a model without ever holding the model key. `crew-sandbox check model` proves the route refuses an unauthenticated request and reaches the API with the host's key. `nix/guest-pi.nix` overrides the guest's `models.json` and `settings.json` from [personal.nix](#personalnix), and `checks.aarch64-darwin.crew-sandbox-model-wiring` fails when the guest and the host services name different providers.
 
 ### token broker
 

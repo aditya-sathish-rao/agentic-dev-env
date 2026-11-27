@@ -28,7 +28,7 @@ because a guest can plant a git hook or a symlink that the host later acts on.
 **One Lima VM holds herdr, the first mate, the crewmates and the worktree pool. The host keeps
 the credentials, and the guest gets none of them directly.**
 
-- `nix/crew-sandbox/lima.yaml` is the guest's whole definition: `vz` driver, 4 CPU, 6 GiB,
+- [`crew-sandbox` v0.1.0's Lima definition](https://github.com/aditya-sathish-rao/crew-sandbox/blob/v0.1.0/internal/lima/lima.yaml) is the guest's whole definition: `vz` driver, 4 CPU, 6 GiB,
   sparse 30 GiB, Ubuntu 26.04 LTS pinned by image digest, `mounts: []`, `portForwards: []`,
   `forwardAgent: false`. A rebuilt guest runs the bytes the file names.
 - The administration account (`crew`) keeps sudo, because Lima provisions and re-provisions

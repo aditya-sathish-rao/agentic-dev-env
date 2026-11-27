@@ -91,7 +91,6 @@ in
     ];
     casks = [
       "wezterm"
-      "visual-studio-code"
       # `av`: secrets custody, and the `mate` alias injects through it. Homebrew only
       # loads a third-party cask that is trusted, so trust this cask, not the tap.
       {

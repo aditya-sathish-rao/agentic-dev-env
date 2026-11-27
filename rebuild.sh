@@ -3,9 +3,61 @@
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
+usage() {
+  cat <<'EOF'
+usage: ./rebuild.sh [--primary | --mini]
+
+  --primary   build and activate the primary Mac's configuration (the default)
+  --mini      build and activate the headless Mac mini's configuration
+
+The host is a configuration name from flake.nix, not the macOS hostname. With no
+flag it defaults to primary, so a bare ./rebuild.sh works on the Mac you sit at.
+On the mini, pass --mini: the default would build the wrong machine.
+AGENTIC_DEV_ENV_HOST is still honoured for automation, but a flag and that
+variable must agree.
+EOF
+}
+
 USER_NAME="${AGENTIC_DEV_ENV_USER:-$(id -un)}"
 HOME_DIR="${AGENTIC_DEV_ENV_HOME:-$HOME}"
-HOST="${AGENTIC_DEV_ENV_HOST:-$USER_NAME}"
+
+# Which machine this is: a configuration name from flake.nix, not the macOS
+# hostname. Defaults to primary so a bare ./rebuild.sh works on the Mac you sit
+# at; the mini has to ask for itself with --mini.
+HOST=""
+for arg in "$@"; do
+  case "$arg" in
+    --primary) HOST=primary ;;
+    --mini) HOST=mini ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "==> host: unknown option '$arg'." >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -n "${AGENTIC_DEV_ENV_HOST:-}" ]]; then
+  if [[ -n "$HOST" && "$HOST" != "$AGENTIC_DEV_ENV_HOST" ]]; then
+    echo "==> host: --$HOST conflicts with AGENTIC_DEV_ENV_HOST=$AGENTIC_DEV_ENV_HOST." >&2
+    exit 1
+  fi
+  HOST="$AGENTIC_DEV_ENV_HOST"
+fi
+
+HOST="${HOST:-primary}"
+
+case "$HOST" in
+  primary | mini) ;;
+  *)
+    echo "==> host: AGENTIC_DEV_ENV_HOST must be primary or mini, got '$HOST'." >&2
+    exit 1
+    ;;
+esac
 # Impure evaluation reads these, so the flake follows whoever is logged in.
 export AGENTIC_DEV_ENV_USER="$USER_NAME"
 export AGENTIC_DEV_ENV_HOME="$HOME_DIR"

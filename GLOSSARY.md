@@ -90,7 +90,7 @@ The triple of username, home directory and host the configuration is built for. 
 
 Two meanings, depending on context:
 
-- **The configuration name.** The `darwinConfigurations` attribute the flake builds, taken from `AGENTIC_DEV_ENV_HOST`. It is not necessarily the machine hostname; it only names the configuration in this repo.
+- **The configuration name.** The `darwinConfigurations` attribute the flake builds, chosen with `./rebuild.sh --mini` on the mini, defaulting to `primary` (or `AGENTIC_DEV_ENV_HOST` for automation). It is not necessarily the machine hostname; it only names the configuration in this repo.
 - **The macOS machine.** The side that runs the crew VM, as opposed to the [guest](#guest).
 
 ### rebuild
@@ -281,7 +281,7 @@ flowchart LR
 
 ### crew VM
 
-The one [Lima](https://lima-vm.io) guest defined by [nix/crew-sandbox/lima.yaml](nix/crew-sandbox/lima.yaml), which the fleet will run inside. It is **replaced rather than patched**: changing its definition means destroying it and creating it again.
+The one [Lima](https://lima-vm.io) guest defined by [`crew-sandbox` v0.1.0](https://github.com/aditya-sathish-rao/crew-sandbox/blob/v0.1.0/internal/lima/lima.yaml), which the fleet will run inside. It is **replaced rather than patched**: changing its definition means destroying it and creating it again.
 
 ### guest
 
@@ -289,7 +289,7 @@ The Linux side of the crew VM, as opposed to the [host](#host). A guest property
 
 ### agent account
 
-The `agent` Linux user inside the crew VM. Agents run as it, and it holds no privilege: no sudo, no privileged group, no readable firewall configuration. It is not an account you log in as; `crew-sandbox shell` gives you the administration account instead.
+The `agent` Linux user inside the crew VM. Commands run through `crew-sandbox run` use this account, which has no sudo, no privileged group, and no readable firewall configuration.
 
 ### egress proxy
 
@@ -301,7 +301,7 @@ The `/model` route on the [egress proxy](#egress-proxy). The guest's [pi](#pi) p
 
 ### token broker
 
-`crew-sandbox broker`, a host-side service that mints one GitHub App installation token per task, for one repository listed in `repos-allow`, valid for under an hour and revoked at teardown. It holds the App private key from the vault; a crewmate never sees a GitHub credential of its own. `crew-sandbox check broker` proves the scope and the revoke against GitHub; `crew-sandbox kill` stops the VM and revokes every token the broker still holds. Binding a token to the task that asked waits for the spawn path in phase 4.
+The host-side GitHub App service, started as a launchd user agent by the `crew-sandbox` Darwin module. It holds the App private key from the vault; a crewmate never sees that key. `crew-sandbox check broker` proves token scope and revocation against GitHub; `crew-sandbox down` stops the VM and revokes every token the broker still holds.
 
 ---
 
@@ -327,19 +327,18 @@ Architecture Decision Record: a short note in `docs/adr/` explaining one decisio
 
 ## Commands at a glance
 
-| Command                              | What it does                                              |
-| ------------------------------------ | --------------------------------------------------------- |
-| `./rebuild.sh`                       | Build and apply the whole configuration                   |
-| `mate`                               | Start the first mate and its crew                         |
-| `crew-sandbox shell`                 | Open a shell in the crew VM as the administration account |
-| `crew-sandbox proxy`                 | Run the egress proxy and model gateway on the host        |
-| `crew-sandbox broker`                | Run the GitHub token broker on the host                   |
-| `crew-sandbox check broker`          | Mint, scope and revoke a real token against GitHub        |
-| `crew-sandbox kill`                  | Stop the VM and revoke every token the broker issued      |
-| `nix flake update <input>`           | Move one pinned input forward, then rebuild               |
-| `av save <NAME>`                     | Store a secret in Secret Custody                          |
-| `av inject <NAME> -- <cmd>`          | Run a command with a secret for that process only         |
-| `av harden gh` / `av doctor gh`      | Harden the GitHub CLI / check it is healthy               |
-| `av scan`                            | Audit the machine for exposed secrets                     |
-| `.githooks/check --staged` / `--all` | Format and lint changed files / everything                |
-| `brew uninstall --cask <name>`       | Remove an app you deleted from the config                 |
+| Command                              | What it does                                               |
+| ------------------------------------ | ---------------------------------------------------------- |
+| `./rebuild.sh`                       | Build and apply the whole configuration                    |
+| `mate`                               | Start the first mate and its crew                          |
+| `crew-sandbox run -- <cmd>`          | Run a command in the guest as `agent`                      |
+| `crew-sandbox up` / `down`           | Start or stop the guest; `down` also revokes broker tokens |
+| `crew-sandbox status` / `destroy`    | Inspect or delete the guest                                |
+| `crew-sandbox check broker`          | Mint, scope and revoke a real token against GitHub         |
+| `nix flake update <input>`           | Move one pinned input forward, then rebuild                |
+| `av save <NAME>`                     | Store a secret in Secret Custody                           |
+| `av inject <NAME> -- <cmd>`          | Run a command with a secret for that process only          |
+| `av harden gh` / `av doctor gh`      | Harden the GitHub CLI / check it is healthy                |
+| `av scan`                            | Audit the machine for exposed secrets                      |
+| `.githooks/check --staged` / `--all` | Format and lint changed files / everything                 |
+| `brew uninstall --cask <name>`       | Remove an app you deleted from the config                  |

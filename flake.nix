@@ -18,6 +18,15 @@
     # here, pinned by flake.lock instead of a global npm install.
     pi.url = "github:earendil-works/pi/stable";
 
+    crew-sandbox = {
+      url = "github:aditya-sathish-rao/crew-sandbox/v0.1.0";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+        home-manager.follows = "home-manager";
+        nix-darwin.follows = "nix-darwin";
+      };
+    };
+
     # Homebrew tap with the Automic Vault cask (it is not in homebrew-cask).
     # Pinned by flake.lock and installed as a declarative tap; see configuration.nix.
     automic-vault-tap = {
@@ -34,6 +43,7 @@
       automic-vault-tap,
       nixpkgs,
       pi,
+      crew-sandbox,
       ...
     }:
     let
@@ -47,6 +57,30 @@
         "aarch64-linux"
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system} system);
+
+      # One builder for every machine. A host file imports the shared base and
+      # adds only what is true of that machine; see docs/host-split-plan.md.
+      # hostName is the configuration name, handed down so a module can pick the
+      # per-host skill directory without reading the environment again.
+      mkDarwin =
+        hostName: hostModule:
+        nix-darwin.lib.darwinSystem {
+          specialArgs = {
+            inherit
+              identity
+              piPackage
+              crew-sandbox
+              automic-vault-tap
+              hostName
+              ;
+          };
+          modules = [
+            nix-homebrew.darwinModules.nix-homebrew
+            home-manager.darwinModules.home-manager
+            crew-sandbox.darwinModules.default
+            hostModule
+          ];
+        };
     in
     {
       # Same tools the checks need, so CI does not pick them up from a runner's
@@ -68,10 +102,7 @@
             paths = builtins.attrValues (import ./nix/crew-tools/default.nix { pkgs = systemPkgs; });
           };
 
-          crew-sandbox = import ./nix/crew-sandbox {
-            pkgs = systemPkgs;
-            piPackage = pi.packages.${system}.default;
-          };
+          crew-sandbox = crew-sandbox.packages.${system}.default;
         }
         // nixpkgs.lib.optionalAttrs (system == "aarch64-linux") {
           # Inside the guest, `nix run .#home-manager` needs no registry lookup.
@@ -83,34 +114,24 @@
       # this Mac has no Linux builder, and the guest has its own Nix.
       homeConfigurations."agent@aarch64-linux" = home-manager.lib.homeManagerConfiguration {
         pkgs = nixpkgs.legacyPackages.aarch64-linux;
-        modules = [ ./nix/crew-sandbox/guest.nix ];
+        modules = [ crew-sandbox.homeManagerModules.default ];
         extraSpecialArgs = {
-          piPackage = pi.packages.aarch64-linux.default;
+          extraPackages = [
+            pi.packages.aarch64-linux.default
+          ]
+          ++ builtins.attrValues (
+            import ./nix/crew-tools/default.nix {
+              pkgs = nixpkgs.legacyPackages.aarch64-linux;
+            }
+          );
         };
       };
 
-      darwinConfigurations.${identity.host} = nix-darwin.lib.darwinSystem {
-        specialArgs = { inherit identity automic-vault-tap; };
-        modules = [
-          nix-homebrew.darwinModules.nix-homebrew
-          ./configuration.nix
-          ./tailscale.nix
-          home-manager.darwinModules.home-manager
-          {
-            home-manager = {
-              # darwin specialArgs stop at the darwin modules, so identity and the
-              # harness package have to be handed to the home-manager modules again.
-              extraSpecialArgs = { inherit identity piPackage; };
-              useGlobalPkgs = true;
-              useUserPackages = true;
-              # A file that exists but is not a home-manager link (an old generated
-              # ~/.config/git/config, say) is moved aside instead of aborting the
-              # whole activation before any link is written.
-              backupFileExtension = "hm-bak";
-              users.${identity.username} = import ./home.nix;
-            };
-          }
-        ];
+      # One builder for every machine. A host file imports the shared base and
+      # adds only what is true of that machine; see docs/host-split-plan.md.
+      darwinConfigurations = {
+        primary = mkDarwin "primary" ./primary.nix;
+        mini = mkDarwin "mini" ./mini.nix;
       };
     };
 }

@@ -38,6 +38,12 @@ fi
 
 files=()
 while IFS= read -r -d '' file; do
+  # Vendored skills stay byte-for-byte close to their source, so neither the
+  # formatters nor the linters touch them. Same rule as .prettierignore, applied
+  # here because shfmt and shellcheck do not read that file.
+  case "$file" in
+    home/.agents/skills/*) continue ;;
+  esac
   files+=("$file")
 done < <("${list_cmd[@]}")
 
@@ -188,15 +194,19 @@ fi
 if [[ "$mode" == all ]]; then
   if command -v nix >/dev/null 2>&1; then
     nix_user="${AGENTIC_DEV_ENV_USER:-$(id -un)}"
-    # Same identity rebuild.sh uses, so the flake resolves the same host.
+    # Same identity rebuild.sh uses. The host is not read from the environment
+    # here: the loop below names each configuration explicitly.
     export AGENTIC_DEV_ENV_USER="$nix_user"
     export AGENTIC_DEV_ENV_HOME="${AGENTIC_DEV_ENV_HOME:-$HOME}"
-    export AGENTIC_DEV_ENV_HOST="${AGENTIC_DEV_ENV_HOST:-$nix_user}"
-    if ! nix --extra-experimental-features 'nix-command flakes' eval --impure --raw \
-      ".#darwinConfigurations.$AGENTIC_DEV_ENV_HOST.system.drvPath" >/dev/null; then
-      echo "check: nix evaluation failed; fix the configuration before it reaches main." >&2
-      exit 1
-    fi
+    # Every machine's configuration is evaluated, not just this one: a host file
+    # that stops evaluating should fail here rather than on the machine it names.
+    for host in primary mini; do
+      if ! nix --extra-experimental-features 'nix-command flakes' eval --impure --raw \
+        ".#darwinConfigurations.$host.system.drvPath" >/dev/null; then
+        echo "check: nix evaluation failed for $host; fix the configuration before it reaches main." >&2
+        exit 1
+      fi
+    done
   else
     echo "check: nix not found; skipping the configuration evaluation." >&2
   fi

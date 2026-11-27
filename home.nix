@@ -5,6 +5,7 @@
   identity,
   piPackage,
   hostName,
+  personal,
   ...
 }:
 
@@ -16,6 +17,37 @@ let
   # the CI dev shell does not carry a second Node runtime, and named here so the
   # launchd agent below can point at one binary in the store.
   crewTools = import ./crew-tools.nix { inherit pkgs; };
+
+  # The model files are generated from personal.nix rather than linked, so the
+  # provider, model and effort are declared in exactly one place. pi writes
+  # lastChangelogVersion into settings.json, so a generated file is replaced on
+  # every activation; that is the price of one source of truth.
+  modelFiles = {
+    ".pi/agent/settings.json" = {
+      "$schema" = "https://pi.dev/schemas/settings.schema.json";
+      defaultProvider = personal.model.provider;
+      defaultModel = personal.model.name;
+      defaultThinkingLevel = personal.model.thinkingLevel;
+    };
+    "firstmate/config/crew-dispatch.json" = {
+      shared_quota = true;
+      default = [
+        {
+          harness = "pi";
+          provider = personal.model.provider;
+        }
+      ];
+    };
+  };
+
+  # The supervision branch triages fleet wakes, so it runs the cheaper model at the
+  # lower effort while the captain's conversation keeps its own. /supervision-model
+  # rewrites these files in place; run ./rebuild.sh to put the pins back.
+  supervisionFiles = {
+    "firstmate/config/supervision-branch-model" =
+      "${personal.model.supervision.provider}/${personal.model.supervision.name}";
+    "firstmate/config/supervision-branch-effort" = personal.model.supervision.thinkingLevel;
+  };
 
   # Every directory under home/.agents/skills is one skill or a bundle of skills,
   # so the skill links are generated and a new skill needs no edit here. Both
@@ -81,22 +113,16 @@ let
     ".claude/AGENTS.md" = "home/AGENTS.md";
     # Pi's agent directory. Only the two config files are linked, because pi writes
     # its own runtime state (auth.json, trust.json, sessions) into ~/.pi/agent.
-    # settings.json owns the default model every agent starts on; AGENTS.md is the
-    # same global instructions file, read here by pi.
-    ".pi/agent/settings.json" = "home/.pi/agent/settings.json";
+    # settings.json is generated from personal.nix (see home.file below), so the
+    # model lives in one file; AGENTS.md is the same global instructions file, read
+    # here by pi.
     ".pi/agent/AGENTS.md" = "home/AGENTS.md";
     # firstmate stays a manual clone at ~/firstmate (it updates itself); only its
-    # local, gitignored dispatch config and supervision pins come from here.
-    "firstmate/config/crew-dispatch.json" = "home/firstmate/crew-dispatch.json";
-    # The supervision branch runs the routine fleet-wake checks, so it is pinned to
-    # the cheap model at low effort while the captain's conversation keeps its own.
-    # /supervision-model rewrites the file in place and breaks these links; run
-    # ./rebuild.sh to restore the declarative pins.
-    "firstmate/config/supervision-branch-model" = "home/firstmate/supervision-branch-model";
-    "firstmate/config/supervision-branch-effort" = "home/firstmate/supervision-branch-effort";
+    # local, gitignored dispatch config and supervision pins come from here, and
+    # all three are generated from personal.nix so the model is declared once.
     # Shadows the harness so a crewmate pane, which starts without the key `mate`
-    # injects, gets OPENROUTER_API_KEY from the vault for its own lifetime; the
-    # wrapper owns why. ~/.local/bin is first on PATH.
+    # injects, gets the model key from the vault for its own lifetime; the wrapper
+    # owns why. ~/.local/bin is first on PATH.
     ".local/bin/pi" = "home/.local/bin/pi";
   }
   // skillLinks;
@@ -160,6 +186,13 @@ assert lib.assertMsg (duplicateSkillNames == [ ])
           [credential]
               helper =
         '';
+      }
+      // builtins.mapAttrs (_: value: { text = builtins.toJSON value; }) modelFiles
+      // builtins.mapAttrs (_: text: { inherit text; }) supervisionFiles
+      // {
+        # The pi wrapper reads the secret's name from here, so the name lives in
+        # personal.nix and not in a tracked script.
+        ".config/agentic-dev-env/model-key-secret".text = personal.model.keySecret;
       };
 
     # A generation that linked the whole ~/.config/herdr directory made the repo's
@@ -239,11 +272,11 @@ assert lib.assertMsg (duplicateSkillNames == [ ])
         m = "git switch main";
         # The first mate: pi in ~/firstmate, spawning crewmates into herdr. The model
         # is not named here on purpose: pi reads it from ~/.pi/agent/settings.json,
-        # so swapping the model is one line in that file and needs no rebuild. The
-        # key rides along for the mate itself only;
+        # which is generated from personal.nix, so swapping the model is one edit
+        # there and a rebuild. The key rides along for the mate itself only;
         # crewmate panes come from a herdr server that never saw it, so the pi
         # wrapper in ~/.local/bin injects it per crewmate.
-        mate = "(cd ~/firstmate && av inject +OPENROUTER_API_KEY -- env FM_BACKEND=herdr pi)";
+        mate = "(cd ~/firstmate && av inject +${personal.model.keySecret} -- env FM_BACKEND=herdr pi)";
       };
     };
 

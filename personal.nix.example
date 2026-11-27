@@ -1,0 +1,42 @@
+# Copy this file to personal.nix and edit it. personal.nix is gitignored, so your
+# values never enter git; this example is only the shape, with placeholders.
+#
+# Everything personal about this machine lives here: the model, its provider, the
+# name of the vault secret holding the model key, the upstream the host proxy
+# forwards to, the GitHub App id, and the firstmate fork. No other tracked file
+# names a provider, a model or a secret.
+#
+# Values here are names and endpoints, never secrets. The API key itself stays in
+# Automic Vault under `model.keySecret`.
+{
+  model = {
+    # The provider and model every agent starts on, and the thinking level the
+    # first mate runs at. Crewmates inherit the model from here.
+    provider = "<provider>";
+    name = "<provider>/<model>";
+    thinkingLevel = "high";
+
+    # The vault secret holding the model key, and the upstream that the host's
+    # model gateway forwards to. Save the key first: av save <keySecret>.
+    keySecret = "MODEL_API_KEY";
+    upstream = "https://api.example.com";
+
+    # The supervision branch only triages fleet wakes, so it runs a cheaper model
+    # at a lower effort than the captain's own conversation.
+    supervision = {
+      provider = "<provider>";
+      name = "<provider>/<model>";
+      thinkingLevel = "low";
+    };
+  };
+
+  # The GitHub App the crew-sandbox token broker mints installation tokens with.
+  githubApp.id = "0000000";
+
+  # ./rebuild.sh clones firstmate from your fork, with upstream as a second remote
+  # so a firstmate bump is a merge into the fork rather than a fetch.
+  firstmate = {
+    fork = "https://github.com/<you>/firstmate";
+    upstream = "https://github.com/kunchenguid/firstmate";
+  };
+}

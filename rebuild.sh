@@ -62,6 +62,9 @@ esac
 export AGENTIC_DEV_ENV_USER="$USER_NAME"
 export AGENTIC_DEV_ENV_HOME="$HOME_DIR"
 export AGENTIC_DEV_ENV_HOST="$HOST"
+# personal.nix is gitignored, so a flake in a git repo cannot see it as a tracked
+# file. nix/personal.nix imports it by this absolute path instead.
+export AGENTIC_DEV_ENV_PERSONAL="$DIR/personal.nix"
 
 # First, before any git call: on a fresh Mac /usr/bin/git is a stub that prompts
 # for the Xcode tools, and that prompt aborts the script under set -e.
@@ -81,12 +84,26 @@ ln -sfn "$DIR" "$HOME_DIR/.agentic-dev-env"
 
 git -C "$DIR" config core.hooksPath .githooks
 
+NIX=/nix/var/nix/profiles/default/bin/nix
+
 # firstmate is the one mutable tree: it fast-forwards itself on /updatefirstmate.
 # Establish it here, before activation links into its config/, so a fresh machine
 # never needs a manual clone first. HTTPS needs no SSH key or vault on a new Mac.
 FIRSTMATE="$HOME_DIR/firstmate"
-FIRSTMATE_URL="https://github.com/aditya-sathish-rao/firstmate"
-FIRSTMATE_UPSTREAM="https://github.com/kunchenguid/firstmate"
+# The fork and upstream come from personal.nix, the same file the flake reads, so
+# no tracked file names a personal repository. A missing personal.nix falls back
+# to the generic defaults in nix/personal.nix, which have no fork to clone.
+personal() {
+  [[ -x "$NIX" ]] || return 0
+  AGENTIC_DEV_ENV_PERSONAL="$DIR/personal.nix" "$NIX" eval --impure --raw \
+    --expr "let p = import $DIR/nix/personal.nix; in p.$1" 2>/dev/null || true
+}
+FIRSTMATE_URL="$(personal firstmate.fork)"
+FIRSTMATE_UPSTREAM="$(personal firstmate.upstream)"
+if [[ -z "$FIRSTMATE_URL" ]]; then
+  echo "==> firstmate: personal.nix has no firstmate.fork; copy personal.nix.example and set it." >&2
+  exit 1
+fi
 EXPECTED_COMMIT="$(<"$DIR/home/firstmate/expected-commit")"
 stub_backup=""
 if [[ -d "$FIRSTMATE" && ! -d "$FIRSTMATE/.git" ]]; then
@@ -126,7 +143,6 @@ else
   echo "==> firstmate: HEAD $actual differs from expected $EXPECTED_COMMIT (reported only; self-update owns this tree)."
 fi
 
-NIX=/nix/var/nix/profiles/default/bin/nix
 echo "==> nix: $NIX"
 if [[ ! -x "$NIX" ]]; then
   echo "    installing Determinate Nix..."

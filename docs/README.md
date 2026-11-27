@@ -18,18 +18,35 @@ edits need no rebuild.
   aliases, `mate` for the crew, and `~/.local/bin` on `PATH` (exported
   from `.zshrc`, because macOS `path_helper` rewrites `PATH` after `.zshenv`).
 - **Configs**: wezterm, neovim, herdr, VS Code (font, terminal font, formatters), pi's
-  agent directory (`~/.pi/agent/settings.json` owns the default model, `AGENTS.md` the
-  global instructions), the user-level skills under `~/.agents/skills` and `~/.claude/skills`
-  (the engineering principles and the pstack set among them), `~/.config/git/config` (resets
-  Apple's ambient credential helper) and `~/.ssh/config` (Keychain-backed key).
+  agent directory (`~/.pi/agent/settings.json` is generated from `personal.nix` and owns the
+  default model, `AGENTS.md` the global instructions), the user-level skills under
+  `~/.agents/skills` and `~/.claude/skills` (the engineering principles and the pstack set
+  among them), `~/.config/git/config` (resets Apple's ambient credential helper) and
+  `~/.ssh/config` (Keychain-backed key).
 
 Config files under `home/` are edited in place in the repo and linked into `$HOME`, so an
 edit needs no rebuild. `~/.config/git/config` is generated instead, because its content is
-written from `home.nix`. VS Code's `settings.json` goes the other way: it is seeded once from
-`home/.config/vscode/settings.json` as a real file and then owned by VS Code, because its
-atomic saves cannot write through a link into the read-only store. Delete the file and run
-`./rebuild.sh` to restore the defaults. See
+written from `home.nix`. The model files (`~/.pi/agent/settings.json`,
+`~/firstmate/config/crew-dispatch.json` and the two supervision pins) are generated from
+`personal.nix` for the same reason: the model is declared once. VS Code's `settings.json`
+goes the other way: it is seeded once from `home/.config/vscode/settings.json` as a real file
+and then owned by VS Code, because its atomic saves cannot write through a link into the
+read-only store. Delete the file and run `./rebuild.sh` to restore the defaults. See
 [ADR-0008](docs/adr/0008-vscode-owns-its-settings.md).
+
+### Your personal values: `personal.nix`
+
+Everything personal about this machine lives in one gitignored file at the repo root:
+`personal.nix`. Copy `personal.nix.example` and edit it. It holds the model and provider every
+agent starts on, the thinking levels, the supervision pin, the _name_ of the vault secret
+holding the model key, the upstream the host proxy forwards to, the GitHub App id, and the
+firstmate fork. A secret's name goes there; its value goes in Automic Vault.
+
+`nix/personal.nix` is the tracked loader. It merges your file over generic defaults, so a
+clone without `personal.nix` still evaluates, and it hands the result to every module as
+`personal`. Because the file is untracked, a flake in a git repo cannot see it as a tracked
+file; `rebuild.sh` and `.githooks/check` export its absolute path as
+`AGENTIC_DEV_ENV_PERSONAL`, and the loader imports it from there.
 
 Terms used below are defined in [GLOSSARY.md](GLOSSARY.md).
 
@@ -112,16 +129,17 @@ They are not automated.
    sudo chown root:wheel /usr/local/bin
    ```
 
-3. **Store the DeepSeek key.**
+3. **Store the model key.** The name is `model.keySecret` in `personal.nix`; the example
+   uses `MODEL_API_KEY`.
 
    ```sh
-   av save DEEPSEEK_API_KEY   # hidden input, then approve the prompt
+   av save MODEL_API_KEY   # hidden input, then approve the prompt
    ```
 
    This key now lives only in Automic Vault and reaches every agent through `av inject`.
 
 4. **Let the terminal inject it.** Until the terminal is granted access, `av inject` asks
-   for Approval on every launch. In the app: select `DEEPSEEK_API_KEY` →
+   for Approval on every launch. In the app: select `MODEL_API_KEY` →
    **Allow Launcher** → WezTerm. After that `mate` starts with no prompt.
 
 5. **Harden `gh`.** The isotope is declared in `configuration.nix`, but the isotope alone
@@ -151,7 +169,7 @@ They are not automated.
 Talk to one agent, ship with a crew. `mate` starts the first mate: pi inside a checkout of
 your [firstmate](https://github.com/kunchenguid/firstmate) fork at `~/firstmate`. It splits a
 request into parallel tasks and spawns one crewmate per task into its own herdr tab and git
-worktree. Everything runs the same harness, pi, on DeepSeek V4.1 Flash.
+worktree. Everything runs the same harness, pi, on one configured model.
 
 ```sh
 ./rebuild.sh   # clones firstmate at the recorded commit, installs the crew's tools
@@ -163,34 +181,36 @@ What is declared here, and where:
 - `pi` is a flake input ([flake.nix](flake.nix), pinned by `flake.lock`) and the only agent
   harness here. Its package ships its own Node runtime and model catalog, so no global npm
   install is involved and the harness version moves only when the lock does.
-- `home/.pi/agent/settings.json` is linked to `~/.pi/agent/settings.json` and owns the model
-  every agent starts on: `defaultProvider: deepseek`, `defaultModel: deepseek-flash` (the
-  catalog entry named DeepSeek V4.1 Flash), `defaultThinkingLevel: high`. To try a different
-  model for the first mate, change those values and start `mate` again. The file is a link
-  into this repo, so it needs no rebuild.
-- `home/firstmate/crew-dispatch.json` is linked to `~/firstmate/config/crew-dispatch.json`.
-  It declares one profile, `{ "harness": "pi", "provider": "deepseek" }`, and deliberately
-  omits the model, so crewmates inherit the same `settings.json` default. With
-  `shared_quota: true` the `quota-array-dispatch` skill resolves the declared profile in
-  order and makes no quota call: there is one provider and one budget.
-- `home/firstmate/supervision-branch-model` and `-effort` are linked into the same
-  `config/`. They pin the supervision branch, the second conversation that triages fleet
-  wakes beside the captain's chat, to `deepseek/deepseek-flash` at `low` effort while the
-  captain keeps `settings.json`'s `high`. Routine triage is cheap, and anything
-  captain-worthy still reaches main, which keeps the full effort. Fleet polling never
-  reaches a model at all: the bash watcher blocks on herdr's event stream, absorbs benign
-  wakes itself, and wakes the branch only for a real transition or decision. A pin applies
-  when the next `mate` session opens; `/supervision-model` rewrites these files in place, so
-  run `./rebuild.sh` after using it to put the declarative pins back.
-- `mate` selects the herdr backend for the launch and injects `DEEPSEEK_API_KEY` into the
-  first mate only. Crewmate panes come from a herdr server that never saw the key, so the
-  wrapper below injects it per crewmate.
+- `personal.nix` is the single source for the model, provider, key secret, proxy upstream,
+  GitHub App id and firstmate fork. `nix/personal.nix` merges it over generic defaults.
+- `~/.pi/agent/settings.json` is generated from `personal.nix` and owns the model every agent
+  starts on: `defaultProvider`, `defaultModel`, `defaultThinkingLevel`. To try a different
+  model, edit `personal.nix` and run `./rebuild.sh`. It is generated rather than linked
+  because pi writes `lastChangelogVersion` into it.
+- `~/firstmate/config/crew-dispatch.json` is generated too. It declares one profile,
+  `{ "harness": "pi", "provider": "<provider>" }`, and deliberately omits the model, so
+  crewmates inherit the same `settings.json` default. With `shared_quota: true` the
+  `quota-array-dispatch` skill resolves the declared profile in order and makes no quota
+  call: there is one provider and one budget.
+- `supervision-branch-model` and `-effort` are generated into the same `config/`. They pin
+  the supervision branch, the second conversation that triages fleet wakes beside the
+  captain's chat, to the `model.supervision` values at `low` effort while the captain keeps
+  `settings.json`'s `high`. Routine triage is cheap, and anything captain-worthy still
+  reaches main, which keeps the full effort. Fleet polling never reaches a model at all: the
+  bash watcher blocks on herdr's event stream, absorbs benign wakes itself, and wakes the
+  branch only for a real transition or decision. A pin applies when the next `mate` session
+  opens; `/supervision-model` rewrites these files in place, so run `./rebuild.sh` after
+  using it to put the declarative pins back.
+- `mate` selects the herdr backend for the launch and injects the `model.keySecret` secret
+  into the first mate only. Crewmate panes come from a herdr server that never saw the key,
+  so the wrapper below injects it per crewmate.
 - `home/.local/bin/pi` shadows the harness with a thin wrapper. A crewmate pane starts with
-  no `DEEPSEEK_API_KEY`, so the wrapper first re-runs itself under `av inject` and each
-  worker holds the key only for its own lifetime; if av fails, the launch stops instead of
-  running signed out. Probes that cannot use a key (`--help`, `--version`, `--list-models`,
-  `auth`, `update`) pass straight through, so firstmate's version detection never waits on
-  a vault approval.
+  no model key, so the wrapper reads the secret's name from
+  `~/.config/agentic-dev-env/model-key-secret` (generated from `personal.nix`) and re-runs
+  itself under `av inject`; each worker holds the key only for its own lifetime, and if av
+  fails the launch stops instead of running signed out. Probes that cannot use a key
+  (`--help`, `--version`, `--list-models`, `auth`, `update`) pass straight through, so
+  firstmate's version detection never waits on a vault approval.
 
 ### What a rebuild automates, and what stays manual
 
@@ -204,9 +224,10 @@ What is declared here, and where:
   and pinned by hash, plus `nodejs_24` - the one runtime they all run on.
 - **the no-mistakes daemon**, declared as a `launchd.agents` entry that points at the store
   binary, so bumping the tool moves the daemon with it.
-- the config links (`~/.pi/agent/settings.json`, `~/.pi/agent/AGENTS.md`,
-  `~/firstmate/config/crew-dispatch.json` and the two supervision pins), `~/.local/bin` on
-  `PATH`, and the `mate` alias in the generated `.zshrc`.
+- the generated model files (`~/.pi/agent/settings.json`,
+  `~/firstmate/config/crew-dispatch.json` and the two supervision pins) and the
+  `~/.pi/agent/AGENTS.md` link, `~/.local/bin` on `PATH`, and the `mate` alias in the
+  generated `.zshrc`.
 
 Homebrew no longer prunes, so the `claude-code` cask from the old harness survives a
 rebuild: `brew uninstall --cask claude-code` once. The `opencode` package needs nothing,
@@ -284,10 +305,11 @@ done
 Every path should sit under `/etc/profiles/per-user/<user>/bin`. The daemon's own state in
 `~/.no-mistakes` is untouched by all three commands.
 
-Save the key once, as in [Manual steps](#manual-steps) step 3:
+Save the key once, as in [Manual steps](#manual-steps) step 3. The name is
+`model.keySecret` in `personal.nix`:
 
 ```sh
-av save DEEPSEEK_API_KEY
+av save MODEL_API_KEY
 ```
 
 Then allow the launcher for it, as in step 4.
@@ -311,7 +333,7 @@ nix run .#crew-sandbox -- check model      # phase 3a-2: the model key stays on 
 nix run .#crew-sandbox -- check toolchain  # phase 2: the guest's tools
 nix run .#crew-sandbox -- check broker     # phase 3b: one repo, one token, revocable
 nix run .#crew-sandbox -- check all --expected-tools "pi gh" \
-  --model-upstream https://api.deepseek.com --model-key-env DEEPSEEK_API_KEY \
+  --model-upstream https://api.example.com --model-key-env MODEL_API_KEY \
   --app-id 5853565 --other-repo aditya-sathish-rao/agentic-dev-env
 nix run .#crew-sandbox -- down              # stop the VM and revoke broker tokens
 nix run .#crew-sandbox -- destroy           # delete the guest and its disk
@@ -359,14 +381,15 @@ What the definition and the two host services guarantee, and what each gate re-p
   proxy, which the model gateway exists to avoid.
 - **No agent holds the model key.** pi 1.5.2 can point a built-in provider at another
   endpoint through `models.json`, so the guest does not need a TLS-terminating proxy. Its
-  `deepseek` provider points at `http://host.lima.internal:3128/model`, a gateway route on
+  configured provider points at `http://host.lima.internal:3128/model`, a gateway route on
   the same host proxy. The guest presents a random token created inside the VM
   (`/etc/crew-model-token`), and only the host proxy process ever holds the real
-  `DEEPSEEK_API_KEY`, injected from the vault when the host proxy agent starts. The gateway
+  `MODEL_API_KEY`, injected from the vault when the host proxy agent starts. The gateway
   strips the guest's `Authorization` header, adds the real one, forwards only `GET /models`
-  and `POST /chat/completions` to `https://api.deepseek.com`, and refuses the route when
-  either half is missing. `check model` proves a request without the token is refused, a
-  request with it reaches the API, and no environment value in the guest is the real key.
+  and `POST /chat/completions` to the upstream set in `crew-sandbox.nix`, and refuses the
+  route when either half is missing. `check model` proves a request without the token is
+  refused, a request with it reaches the API, and no environment value in the guest is the
+  real key.
 - **No agent holds a GitHub credential.** `crew-sandbox broker` mints one App installation
   token per task, for one repository from the
   [pinned repository allowlist](https://github.com/aditya-sathish-rao/crew-sandbox/blob/v0.1.0/internal/allowlist/repos-allow.example),
@@ -421,12 +444,12 @@ Code that needs a secret gets it per launch, so it is never ambient in the envir
 av inject <name> -- command
 ```
 
-Pi reads its DeepSeek key from `DEEPSEEK_API_KEY`, and `av inject` supplies it for the life
-of one process. There is no pi hardener either, so the launch is where the key enters; the
-reasoning is in [ADR-0005](docs/adr/0005-pi-only-harness.md):
+Pi reads its model key from `MODEL_API_KEY`, and `av inject` supplies it for the life of one
+process. There is no pi hardener either, so the launch is where the key enters; the reasoning
+is in [ADR-0005](docs/adr/0005-pi-only-harness.md):
 
 ```sh
-mate   # av inject +DEEPSEEK_API_KEY -- env FM_BACKEND=herdr pi
+mate   # av inject +MODEL_API_KEY -- env FM_BACKEND=herdr pi
 ```
 
 If a secret ever reaches git history, a stale file or a log, rotate it at the provider and

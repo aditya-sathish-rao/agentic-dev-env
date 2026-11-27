@@ -4,16 +4,25 @@
 # them from the vault at start-up. They are launchd user agents, so they start with
 # a GUI login rather than at boot. See docs/host-split-plan.md for what that means
 # on a headless host.
-{ identity, crew-sandbox, ... }:
+{
+  identity,
+  crew-sandbox,
+  personal,
+  ...
+}:
 {
   system.primaryUser = identity.username;
 
   services.crew-sandbox = {
     enable = true;
     package = crew-sandbox.packages.aarch64-darwin.default;
-    proxy.upstream = "https://api.deepseek.com";
-    proxy.keySecret = "DEEPSEEK_API_KEY";
-    broker.appID = "5853565";
+    # The upstream the host proxy forwards model traffic to, and the vault secret
+    # holding that upstream's API key. Both come from personal.nix, so no provider
+    # is named in a tracked file. Save the key first (`av save <keySecret>`): the
+    # proxy agent reads it from the vault at start-up.
+    proxy.upstream = personal.model.upstream;
+    proxy.keySecret = personal.model.keySecret;
+    broker.appID = personal.githubApp.id;
   };
 
   # The module's wrapper prepends its own packages to PATH and inherits the rest.

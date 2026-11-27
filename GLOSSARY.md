@@ -50,7 +50,7 @@ flowchart TB
 
 ## A to Z index
 
-[agent account](#agent-account) · [agentic-dev-env link](#agentic-dev-env-link) · [Activation](#activation) · [ADR](#adr) · [Additive](#additive-homebrew) · [AGENTS.md](#agentsmd) · [Approval](#approval) · [Automic Vault](#automic-vault) · [av](#av) · [Captain](#captain) · [Cask](#homebrew-brew-cask) · [check](#check) · [Companion CLIs](#companion-clis) · [crew-dispatch.json](#crew-dispatchjson) · [crew VM](#crew-vm) · [Crewmate](#crewmate) · [Declarative](#declarative) · [egress proxy](#egress-proxy) · [Effort](#effort-thinking-level) · [First mate](#first-mate) · [Firstmate](#firstmate) · [Flake](#flake) · [guest](#guest) · [hardening](#hardening) · [harness](#harness) · [herdr](#herdr) · [home-manager](#home-manager) · [host](#host) · [identity](#identity) · [Impure evaluation](#impure-evaluation) · [inject](#inject) · [isotope](#isotope) · [Lima](#lima) · [mate](#mate) · [model gateway](#model-gateway) · [nix-darwin](#nix-darwin) · [Nix store](#nix-store) · [pi](#pi) · [pi wrapper](#pi-wrapper) · [principle skill](#principle-skill) · [Rebuild](#rebuild) · [rendered file](#rendered-file) · [scan finding](#scan-finding) · [Secret Custody](#secret-custody) · [seeded file](#seeded-file) · [Skill](#skill) · [supervision branch](#supervision-branch) · [tap](#tap) · [token broker](#token-broker) · [Worktree](#worktree)
+[agent account](#agent-account) · [agentic-dev-env link](#agentic-dev-env-link) · [Activation](#activation) · [ADR](#adr) · [Additive](#additive-homebrew) · [AGENTS.md](#agentsmd) · [Approval](#approval) · [Automic Vault](#automic-vault) · [av](#av) · [Captain](#captain) · [Cask](#homebrew-brew-cask) · [check](#check) · [Companion CLIs](#companion-clis) · [crew-dispatch.json](#crew-dispatchjson) · [crew VM](#crew-vm) · [Crewmate](#crewmate) · [Declarative](#declarative) · [egress proxy](#egress-proxy) · [Effort](#effort-thinking-level) · [First mate](#first-mate) · [Firstmate](#firstmate) · [Flake](#flake) · [guest](#guest) · [hardening](#hardening) · [harness](#harness) · [herdr](#herdr) · [home-manager](#home-manager) · [host](#host) · [identity](#identity) · [Impure evaluation](#impure-evaluation) · [inject](#inject) · [isotope](#isotope) · [Lima](#lima) · [mate](#mate) · [model gateway](#model-gateway) · [nix-darwin](#nix-darwin) · [Nix store](#nix-store) · [personal.nix](#personalnix) · [pi](#pi) · [pi wrapper](#pi-wrapper) · [principle skill](#principle-skill) · [Rebuild](#rebuild) · [rendered file](#rendered-file) · [scan finding](#scan-finding) · [Secret Custody](#secret-custody) · [seeded file](#seeded-file) · [Skill](#skill) · [supervision branch](#supervision-branch) · [tap](#tap) · [token broker](#token-broker) · [Worktree](#worktree)
 
 ---
 
@@ -140,7 +140,11 @@ A symlink from `$HOME` back into this repo. Edit the file in the repo and the ch
 
 ### rendered file
 
-A file whose content Nix generates, unlike a linked file that only points at the repo. Rendered files need `./rebuild.sh` after an edit. Example: `~/.config/git/config`, edited in `home.nix`.
+A file whose content Nix generates, unlike a linked file that only points at the repo. Rendered files need `./rebuild.sh` after an edit. Examples: `~/.config/git/config`, edited in `home.nix`, and the model files (`~/.pi/agent/settings.json`, `~/firstmate/config/crew-dispatch.json`, the supervision pins), generated from `personal.nix`.
+
+### personal.nix
+
+The one gitignored file at the repo root holding everything personal about this machine: the model and provider, the thinking levels, the supervision pin, the name of the vault secret holding the model key, the proxy upstream, the GitHub App id and the firstmate fork. Copy `personal.nix.example` to create it. `nix/personal.nix` is the tracked loader that merges it over generic defaults and hands it to every module as `personal`. Because a flake in a git repo cannot see an untracked file, `rebuild.sh` and `.githooks/check` export its absolute path as `AGENTIC_DEV_ENV_PERSONAL`.
 
 ### seeded file
 
@@ -168,7 +172,7 @@ The Automic Vault command-line tool, installed by the app's **Install av CLI** b
 
 ### approval
 
-The prompt Automic Vault shows when something asks for a secret. Granting **Allow Launcher** to WezTerm for `DEEPSEEK_API_KEY` stops it asking on every `mate` launch.
+The prompt Automic Vault shows when something asks for a secret. Granting **Allow Launcher** to WezTerm for `MODEL_API_KEY` stops it asking on every `mate` launch.
 
 ### hardening
 
@@ -192,11 +196,11 @@ The harness. It comes from its own flake input, so its version moves only when `
 
 ### pi wrapper
 
-`home/.local/bin/pi`, a thin script that shadows the real `pi`. A fresh crewmate pane has no `DEEPSEEK_API_KEY`, so the wrapper re-runs itself under `av inject`. If `av` fails the launch stops rather than running signed out. Probes that need no key (`--help`, `--version`, `--list-models`, `auth`, `update`) pass straight through.
+`home/.local/bin/pi`, a thin script that shadows the real `pi`. A fresh crewmate pane has no model key, so the wrapper reads the secret's name from `~/.config/agentic-dev-env/model-key-secret` (generated from `personal.nix`) and re-runs itself under `av inject`. If `av` fails the launch stops rather than running signed out. Probes that need no key (`--help`, `--version`, `--list-models`, `auth`, `update`) pass straight through.
 
 ### mate
 
-The shell alias that starts the crew. It injects the key into the first mate only: roughly `av inject +DEEPSEEK_API_KEY -- env FM_BACKEND=herdr pi`.
+The shell alias that starts the crew. It injects the key into the first mate only: roughly `av inject +<model.keySecret> -- env FM_BACKEND=herdr pi`, where the secret's name comes from `personal.nix`.
 
 ### Firstmate
 
@@ -208,7 +212,7 @@ The pi session started by `mate` inside `~/firstmate`. It is the only agent you 
 
 ### crewmate
 
-An agent a first mate spawns for one task, in its own herdr tab and git worktree. Here it is pi on DeepSeek V4.1 Flash, chosen by `home/firstmate/crew-dispatch.json`.
+An agent a first mate spawns for one task, in its own herdr tab and git worktree. Here it is pi on the model chosen by `personal.nix`.
 
 ### captain
 
@@ -216,11 +220,11 @@ The human in the main conversation with the first mate. "Captain-worthy" means s
 
 ### supervision branch
 
-Firstmate's second conversation, beside the captain's chat, that triages fleet wakes in a model and escalates only what the captain should see. This repo pins it to `deepseek/deepseek-flash` at `low` effort through `home/firstmate/supervision-branch-*`, while the captain's own conversation keeps `settings.json`'s model and effort.
+Firstmate's second conversation, beside the captain's chat, that triages fleet wakes in a model and escalates only what the captain should see. This repo pins it to the `model.supervision` values at `low` effort through the generated `~/firstmate/config/supervision-branch-*` files, while the captain's own conversation keeps `settings.json`'s model and effort.
 
 ### crew-dispatch.json
 
-`home/firstmate/crew-dispatch.json`, linked to `~/firstmate/config/crew-dispatch.json`. It declares the harness and provider crewmates use and omits the model, so they inherit the default from `settings.json`.
+`~/firstmate/config/crew-dispatch.json`, generated from `personal.nix`. It declares the harness and provider crewmates use and omits the model, so they inherit the default from `settings.json`.
 
 ### effort (thinking level)
 
@@ -297,7 +301,7 @@ The `agent` Linux user inside the crew VM. Commands run through `crew-sandbox ru
 
 ### model gateway
 
-The `/model` route on the [egress proxy](#egress-proxy). The guest's [pi](#pi) points its `deepseek` provider at `http://host.lima.internal:3128/model` through `guest/models.json`; the gateway checks the token in `/etc/crew-model-token`, replaces it with the real `DEEPSEEK_API_KEY` that only the proxy process holds, and forwards the request to `https://api.deepseek.com`. It is how the guest gets a model without ever holding the model key. `crew-sandbox check model` proves the route refuses an unauthenticated request and reaches the API with the host's key.
+The `/model` route on the [egress proxy](#egress-proxy). The guest's [pi](#pi) points its configured provider at `http://host.lima.internal:3128/model` through `guest/models.json`; the gateway checks the token in `/etc/crew-model-token`, replaces it with the real `MODEL_API_KEY` that only the proxy process holds, and forwards the request to the upstream set in `crew-sandbox.nix`. It is how the guest gets a model without ever holding the model key. `crew-sandbox check model` proves the route refuses an unauthenticated request and reaches the API with the host's key.
 
 ### token broker
 

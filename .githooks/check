@@ -198,6 +198,10 @@ if [[ "$mode" == all ]]; then
     # here: the loop below names each configuration explicitly.
     export AGENTIC_DEV_ENV_USER="$nix_user"
     export AGENTIC_DEV_ENV_HOME="${AGENTIC_DEV_ENV_HOME:-$HOME}"
+    # personal.nix is gitignored, so the flake cannot see it as a tracked file;
+    # nix/personal.nix imports it by this absolute path. Absent, the generic
+    # defaults apply and the evaluation still proves the configuration.
+    export AGENTIC_DEV_ENV_PERSONAL="$root/personal.nix"
     # Every machine's configuration is evaluated, not just this one: a host file
     # that stops evaluating should fail here rather than on the machine it names.
     for host in primary mini; do

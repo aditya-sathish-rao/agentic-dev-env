@@ -8,3 +8,9 @@ home/.config/herdr/*
 
 # A GitHub App private key must never enter the tree; the broker reads it from the vault.
 *.private-key.pem
+
+# The machine owner's personal values: model, provider, key secret name, proxy
+# upstream, GitHub App id, firstmate fork. Copy personal.nix.example to personal.nix.
+# It is imported by absolute path (nix/personal.nix), so being untracked is fine.
+# Anchored to the root: nix/personal.nix is the tracked loader and must stay visible.
+/personal.nix

@@ -49,6 +49,9 @@
     let
       identity = import ./identity.nix;
       piPackage = pi.packages.${builtins.currentSystem}.default;
+      # Every personal value - model, provider, key secret, proxy upstream, GitHub
+      # App id, firstmate fork - comes from one gitignored file. See nix/personal.nix.
+      personal = import ./nix/personal.nix;
 
       # Output attribute names must be pure: home-manager re-evaluates this flake
       # without --impure inside the guest, and builtins.currentSystem is not there.
@@ -72,6 +75,7 @@
               crew-sandbox
               automic-vault-tap
               hostName
+              personal
               ;
           };
           modules = [
@@ -116,6 +120,7 @@
         pkgs = nixpkgs.legacyPackages.aarch64-linux;
         modules = [ crew-sandbox.homeManagerModules.default ];
         extraSpecialArgs = {
+          inherit personal;
           extraPackages = [
             pi.packages.aarch64-linux.default
           ]

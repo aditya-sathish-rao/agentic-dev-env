@@ -6,11 +6,19 @@
   identity,
   piPackage,
   hostName,
+  personal,
   ...
 }:
 {
   home-manager = {
-    extraSpecialArgs = { inherit identity piPackage hostName; };
+    extraSpecialArgs = {
+      inherit
+        identity
+        piPackage
+        hostName
+        personal
+        ;
+    };
     useGlobalPkgs = true;
     useUserPackages = true;
     # A file that exists but is not a home-manager link (an old generated

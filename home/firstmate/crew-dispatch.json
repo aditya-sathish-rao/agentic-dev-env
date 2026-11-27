@@ -1,4 +1,0 @@
-{
-  "shared_quota": true,
-  "default": [{ "harness": "pi", "provider": "openrouter" }]
-}

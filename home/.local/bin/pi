@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 # Supply the vault key to a crewmate pane.
 #
-# `mate` injects OPENROUTER_API_KEY into the first mate only. Crewmate panes are
+# `mate` injects the model key into the first mate only. Crewmate panes are
 # opened by a herdr server that never saw that key, so a launch that needs one
 # re-runs this wrapper under `av inject` and the worker holds the key only for
 # its own lifetime. An av failure stops the launch instead of leaving pi to run
 # signed out; with no av on PATH the wrapper passes through unchanged.
+#
+# The secret's name is not hardcoded: home.nix generates it from personal.nix
+# into ~/.config/agentic-dev-env/model-key-secret, so no tracked file names a
+# provider. Without that file there is no key to inject and the wrapper passes
+# through.
 #
 # Probes that cannot use a model key (`--help`, `--version`, `auth`, `update`,
 # `--list-models`) pass through, so firstmate's help and version detection never
@@ -31,8 +36,12 @@ case ${1:-} in
   --help | --version | --list-models | auth | update) exec "$real" "$@" ;;
 esac
 
-if [[ -z ${OPENROUTER_API_KEY:-} ]] && command -v av >/dev/null 2>&1; then
-  exec av inject +OPENROUTER_API_KEY -- "${BASH_SOURCE[0]}" "$@"
+key_file="$HOME/.config/agentic-dev-env/model-key-secret"
+key=''
+[[ -r $key_file ]] && IFS= read -r key <"$key_file"
+
+if [[ -n $key && -z ${!key:-} ]] && command -v av >/dev/null 2>&1; then
+  exec av inject "+$key" -- "${BASH_SOURCE[0]}" "$@"
 fi
 
 exec "$real" "$@"

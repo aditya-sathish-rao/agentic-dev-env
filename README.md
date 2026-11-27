@@ -30,10 +30,10 @@ Run one script on a fresh Mac and you get your shell, editors, terminal, CLI too
 
 This repo does two jobs, and it helps to keep them separate in your head.
 
-| Layer                 | What it does                                                                                                                                                       | Built with                                                                                                                                   |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1. The machine**    | Declares everything installed and configured on a Mac: packages, apps, shell, editor and terminal configs, system settings.                                        | [nix-darwin](https://github.com/nix-darwin/nix-darwin), [home-manager](https://github.com/nix-community/home-manager), Homebrew for GUI apps |
-| **2. The agent crew** | Wires up AI agents on top of that machine: one harness (`pi`), one model provider (DeepSeek), a coordinator (the _first mate_) and parallel workers (_crewmates_). | `pi`, [firstmate](https://github.com/kunchenguid/firstmate), herdr, Automic Vault                                                            |
+| Layer                 | What it does                                                                                                                                            | Built with                                                                                                                                   |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1. The machine**    | Declares everything installed and configured on a Mac: packages, apps, shell, editor and terminal configs, system settings.                             | [nix-darwin](https://github.com/nix-darwin/nix-darwin), [home-manager](https://github.com/nix-community/home-manager), Homebrew for GUI apps |
+| **2. The agent crew** | Wires up AI agents on top of that machine: one harness (`pi`), one model provider, a coordinator (the _first mate_) and parallel workers (_crewmates_). | `pi`, [firstmate](https://github.com/kunchenguid/firstmate), herdr, Automic Vault                                                            |
 
 Three principles run through the whole repo:
 
@@ -71,7 +71,7 @@ flowchart TB
     end
 
     AV[("Automic Vault<br/>all secrets")]
-    LLM["DeepSeek model API"]
+    LLM["Model API"]
 
     You --> RB
     RB --> FL
@@ -96,15 +96,27 @@ flowchart TB
 - **Packages (nix):** ripgrep, fd, fzf, jq, lazygit, neovim, Hack Nerd Font, the agent harness `pi` (from its own flake input), the Swift linters `swiftlint` and `swift-format` (both run with `--strict`), and the formatters and linters the commit hook runs: nixfmt, shfmt, stylua, prettier, taplo, statix, deadnix, shellcheck, selene.
 - **Apps (Homebrew):** wezterm, Visual Studio Code, herdr, Node, Automic Vault (`av`, which holds every secret this machine needs), and the `automic-vault/isotopes/gh-cli` isotope that `av harden gh` installs.
 - **Shell:** zsh with autosuggestions and syntax highlighting, the starship prompt, git aliases, the `mate` alias, and `~/.local/bin` on `PATH` (exported from `.zshrc`, because macOS `path_helper` rewrites `PATH` after `.zshenv`).
-- **Configs:** wezterm, neovim, herdr, VS Code (font, terminal font, formatters), pi's agent directory (`~/.pi/agent/settings.json` owns the default model, `AGENTS.md` holds the global instructions), user-level skills under `~/.agents/skills` and `~/.claude/skills`, `~/.config/git/config` (resets Apple's ambient credential helper) and `~/.ssh/config` (Keychain-backed key).
+- **Configs:** wezterm, neovim, herdr, VS Code (font, terminal font, formatters), pi's agent directory (`~/.pi/agent/settings.json` is generated from `personal.nix` and owns the default model, `AGENTS.md` holds the global instructions), user-level skills under `~/.agents/skills` and `~/.claude/skills`, `~/.config/git/config` (resets Apple's ambient credential helper) and `~/.ssh/config` (Keychain-backed key).
 
 ## Setup guide
 
 ### Before you start
 
 - A Mac (Apple Silicon or Intel) and an admin user. Nothing in the tree hardcodes the username: `identity.nix` reads it from the environment when the flake is evaluated. See [Adapting](#adapting-this-to-your-machine) if the defaults do not fit.
-- An account with the model provider (a DeepSeek API key).
+- An account with the model provider (a model API key).
 - About 30 minutes, most of it waiting for the first build.
+
+### Your personal values: `personal.nix`
+
+Everything personal about this machine lives in one gitignored file at the repo root. No tracked file names a provider, a model, a secret or a repository:
+
+```bash
+cp personal.nix.example personal.nix   # then edit it
+```
+
+It holds the model and provider every agent starts on, the thinking levels, the supervision pin, the _name_ of the vault secret holding the model key, the upstream the host proxy forwards to, the GitHub App id, and the firstmate fork. A secret's name goes there; its value goes in Automic Vault. `nix/personal.nix` is the tracked loader: it merges your file over generic defaults, so a clone without `personal.nix` still evaluates. Because the file is untracked, `rebuild.sh` and `.githooks/check` export its absolute path as `AGENTIC_DEV_ENV_PERSONAL`; a flake in a git repo cannot see untracked files any other way.
+
+The model files are generated from it at activation, so the model really is declared once: `~/.pi/agent/settings.json`, `~/firstmate/config/crew-dispatch.json` and the two supervision pins are rendered, not linked. Changing the model is an edit to `personal.nix` plus `./rebuild.sh`.
 
 ### The order of operations
 
@@ -134,15 +146,16 @@ flowchart TD
 git clone https://github.com/kunchenguid/firstmate ~/firstmate
 ```
 
-Do this first. Activation creates `~/firstmate/config/` to hold a linked dispatch file, and `git clone` then refuses the non-empty directory. If you already ran the rebuild, `rm -rf ~/firstmate` (nothing is in it yet) and clone again.
+Do this first. Activation creates `~/firstmate/config/` to hold the generated dispatch file, and `git clone` then refuses the non-empty directory. If you already ran the rebuild, `rm -rf ~/firstmate` (nothing is in it yet) and clone again.
 
-Firstmate is cloned by hand because it updates itself (`/updatefirstmate`), so this repo deliberately never installs or updates it.
+Firstmate is cloned by hand because it updates itself (`/updatefirstmate`), so this repo deliberately never installs or updates it. `rebuild.sh` clones it from the fork named in `personal.nix` when `~/firstmate` is absent, so the fork is the one place a personal repository is named.
 
-### Step 2: clone this repo and rebuild
+### Step 2: clone this repo, set your values, rebuild
 
 ```bash
 git clone https://github.com/aditya-sathish-rao/agentic-dev-env.git ~/github/agentic-dev-env
 cd ~/github/agentic-dev-env
+cp personal.nix.example personal.nix   # then edit: model, provider, key secret, App id, fork
 ./rebuild.sh             # primary by default; --mini on the headless Mac mini
 ```
 
@@ -181,15 +194,15 @@ These are the steps Automic Vault only lets a human do. They are not automated.
    sudo chown root:wheel /usr/local/bin
    ```
 
-3. **Store the DeepSeek key.**
+3. **Store the model key.**
 
    ```bash
-   av save DEEPSEEK_API_KEY   # hidden input, then approve the prompt
+   av save MODEL_API_KEY   # hidden input, then approve the prompt
    ```
 
    The key now lives only in Automic Vault and reaches every agent through `av inject`.
 
-4. **Let the terminal inject it.** In the app: select `DEEPSEEK_API_KEY`, then **Allow Launcher**, then WezTerm. Without this, `av inject` asks for Approval on every launch.
+4. **Let the terminal inject it.** In the app: select `MODEL_API_KEY`, then **Allow Launcher**, then WezTerm. Without this, `av inject` asks for Approval on every launch.
 
 5. **Harden `gh`.** The isotope is declared in `configuration.nix`, but it does not migrate or gate anything until you run the hardener:
 
@@ -223,7 +236,7 @@ The first launch reports anything still missing as `MISSING:` and asks before in
 - [ ] `./rebuild.sh` completed and a new terminal opened
 - [ ] companion CLIs installed
 - [ ] Automic Vault running, `av` installed
-- [ ] `DEEPSEEK_API_KEY` saved and the launcher allowed
+- [ ] `MODEL_API_KEY` saved and the launcher allowed
 - [ ] `av doctor gh` healthy
 - [ ] SSH key has a passphrase
 - [ ] `mate` starts with no `MISSING:` lines
@@ -323,7 +336,7 @@ sequenceDiagram
     participant GH as GitHub (hardened gh)
 
     You->>Mate: mate
-    Mate->>AV: av inject +DEEPSEEK_API_KEY -- env FM_BACKEND=herdr pi
+    Mate->>AV: av inject +MODEL_API_KEY -- env FM_BACKEND=herdr pi
     AV-->>FM: starts pi with the key, for this process only
     You->>FM: describe what you want built
     FM->>FM: split the request into parallel tasks
@@ -348,29 +361,34 @@ Key things this shows:
 
 ```mermaid
 flowchart LR
-    S["home/.pi/agent/settings.json<br/>provider: deepseek<br/>model: deepseek-flash<br/>thinking: high"]
-    D["home/firstmate/crew-dispatch.json<br/>profile: harness pi, provider deepseek<br/>no model, so it inherits"]
-    SB["home/firstmate/supervision-branch-model<br/>and supervision-branch-effort<br/>deepseek/deepseek-flash at low"]
+    P["personal.nix<br/>(gitignored)<br/>provider, model, thinking level,<br/>key secret, upstream, App id, fork"]
+    S["~/.pi/agent/settings.json<br/>provider: &lt;provider&gt;<br/>model: &lt;model&gt;<br/>thinking: high"]
+    D["~/firstmate/config/crew-dispatch.json<br/>profile: harness pi, provider &lt;provider&gt;<br/>no model, so it inherits"]
+    SB["~/firstmate/config/supervision-branch-model<br/>and supervision-branch-effort<br/>&lt;provider&gt;/&lt;model&gt; at low"]
 
+    P -- "generated at activation" --> S
+    P -- "generated at activation" --> D
+    P -- "generated at activation" --> SB
     S --> FM["First mate<br/>(captain's chat)"]
     S --> CM["Crewmates"]
     D --> CM
     SB --> SUP["Supervision branch<br/>(fleet triage)"]
 ```
 
-- `home/.pi/agent/settings.json` is linked to `~/.pi/agent/settings.json` and owns the model every agent starts on: `defaultProvider: deepseek`, `defaultModel: deepseek-flash` (the catalog entry named DeepSeek V4.1 Flash), `defaultThinkingLevel: high`. To try another model for the first mate, change those values and restart `mate`. No rebuild needed.
-- `home/firstmate/crew-dispatch.json` is linked to `~/firstmate/config/crew-dispatch.json`. It declares one profile and deliberately omits the model, so crewmates inherit the `settings.json` default. With `shared_quota: true`, the `quota-array-dispatch` skill resolves the declared profile in order and makes no quota call, since there is one provider and one budget.
-- `supervision-branch-model` and `-effort` pin the supervision branch to `deepseek/deepseek-flash` at `low` effort, while the captain keeps `high`. Routine triage is cheap, and anything captain-worthy still reaches the main conversation. A pin applies when the next `mate` session opens. `/supervision-model` rewrites these files in place, so run `./rebuild.sh` afterwards to put the declarative pins back.
+- `personal.nix` is the single source. `nix/personal.nix` merges it over generic defaults and hands it to every module as `personal`.
+- `~/.pi/agent/settings.json` is generated from it and owns the model every agent starts on: `defaultProvider`, `defaultModel`, `defaultThinkingLevel`. To try another model, edit `personal.nix` and run `./rebuild.sh`. The file is generated rather than linked because pi writes `lastChangelogVersion` into it, so a hand edit would be overwritten anyway.
+- `~/firstmate/config/crew-dispatch.json` is generated too. It declares one profile and deliberately omits the model, so crewmates inherit the `settings.json` default. With `shared_quota: true`, the `quota-array-dispatch` skill resolves the declared profile in order and makes no quota call, since there is one provider and one budget.
+- `supervision-branch-model` and `-effort` pin the supervision branch to the `model.supervision` values at `low` effort, while the captain keeps `high`. Routine triage is cheap, and anything captain-worthy still reaches the main conversation. A pin applies when the next `mate` session opens. `/supervision-model` rewrites these files in place, so run `./rebuild.sh` afterwards to put the declarative pins back.
 
 ### What a rebuild automates and what it does not
 
-| Automated by `./rebuild.sh`                                                         | Manual, once                         |
-| ----------------------------------------------------------------------------------- | ------------------------------------ |
-| `pi` from the flake input                                                           | Clone firstmate                      |
-| herdr from Homebrew                                                                 | Install the companion CLIs           |
-| Config links (`settings.json`, `AGENTS.md`, `crew-dispatch.json`, supervision pins) | Store the key and allow the launcher |
-| `~/.local/bin` on `PATH`                                                            | Harden `gh`                          |
-| The `mate` alias in `.zshrc`                                                        | Encrypt the SSH key                  |
+| Automated by `./rebuild.sh`                                                                              | Manual, once                         |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `pi` from the flake input                                                                                | Clone firstmate                      |
+| herdr from Homebrew                                                                                      | Install the companion CLIs           |
+| Generated model files (`settings.json`, `crew-dispatch.json`, supervision pins) and the `AGENTS.md` link | Store the key and allow the launcher |
+| `~/.local/bin` on `PATH`                                                                                 | Harden `gh`                          |
+| The `mate` alias in `.zshrc`                                                                             | Encrypt the SSH key                  |
 
 Homebrew no longer prunes, so the `claude-code` cask from the old harness survives a rebuild. Run `brew uninstall --cask claude-code` once. The `opencode` package needs nothing, because it came from nix and activation replaces the profile.
 
@@ -423,10 +441,10 @@ flowchart LR
     end
 ```
 
-Pi reads its DeepSeek key from `DEEPSEEK_API_KEY`, and `av inject` supplies it for the life of one process. There is no pi hardener, so the launch is where the key enters. The reasoning is in [ADR-0005](docs/adr/0005-pi-only-harness.md). `mate` expands to:
+Pi reads its model key from `MODEL_API_KEY`, and `av inject` supplies it for the life of one process. There is no pi hardener, so the launch is where the key enters. The reasoning is in [ADR-0005](docs/adr/0005-pi-only-harness.md). `mate` expands to:
 
 ```bash
-av inject +DEEPSEEK_API_KEY -- env FM_BACKEND=herdr pi
+av inject +MODEL_API_KEY -- env FM_BACKEND=herdr pi
 ```
 
 If a secret ever reaches git history, a stale file or a log, **rotate it at the provider** and `av save` the new value. Rewriting history is not a fix, because the old value stays readable wherever it was copied.
@@ -469,7 +487,7 @@ flowchart TD
 | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Apply a change to `home.nix`, `configuration.nix` or `flake.nix` | `./rebuild.sh` (or `--mini`)                                                                                                                             |
 | Change wezterm, neovim, herdr, pi or skill configs               | Edit the file under `home/`. No rebuild                                                                                                                  |
-| Change the default model                                         | Edit `home/.pi/agent/settings.json`, restart `mate`                                                                                                      |
+| Change the default model                                         | Edit `personal.nix`, then `./rebuild.sh`                                                                                                                 |
 | Change VS Code settings                                          | Edit `home/.config/vscode/settings.json`, delete `~/Library/.../settings.json` (the real file), then `./rebuild.sh`                                      |
 | Change git config                                                | Edit `home.nix`, then `./rebuild.sh` (or `--mini`)                                                                                                       |
 | Update pi                                                        | `nix flake update pi`, then `./rebuild.sh` (or `--mini`). **Do not** run `pi update pi`: the installed copy lives in the read-only store                 |
@@ -541,14 +559,14 @@ Most of this needs no changes, because the identity is dynamic.
 - **Another config file.** See the [cheat sheet](#day-to-day-cheat-sheet). A file whose content Nix generates is rendered or seeded instead of linked, depending on whether the application itself writes it.
 - **Homebrew is additive.** With `homebrew.onActivation.cleanup = "none"`, `brews` and `casks` are installed and upgraded and everything else on the machine is left alone. The price: deleting an entry here does not uninstall it. Run `brew uninstall --cask <name>` (or `brew zap <name>`). See [ADR-0006](docs/adr/0006-homebrew-is-additive.md).
 - **The Automic Vault tap.** The cask is not in homebrew-cask, so its tap is a flake input (`automic-vault-tap`, `flake = false`) installed by `nix-homebrew.taps`. Taps stay mutable on purpose, and the cask entry must stay fully qualified and `trusted`. See [ADR-0001](docs/adr/0001-homebrew-taps-stay-mutable.md).
-- **A different model or provider.** Edit `home/.pi/agent/settings.json` (and the profile in `home/firstmate/crew-dispatch.json` if you change provider), then restart `mate`.
+- **A different model or provider.** Edit `personal.nix` (the model, provider and supervision pin all live there), then `./rebuild.sh`. The model files are generated, so a hand edit to `~/.pi/agent/settings.json` is replaced on the next activation.
 
 ## Troubleshooting
 
 | Symptom                                                        | Cause                                                            | Fix                                                                                                      |
 | -------------------------------------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | `approval service is not running` from any `av` command        | The Automic Vault menu bar app is not running                    | `open -a "Automic Vault"` and leave it running                                                           |
-| `av` asks for Approval on every `mate` launch                  | The terminal has not been granted access to the key              | In the app: `DEEPSEEK_API_KEY`, then **Allow Launcher**, then WezTerm                                    |
+| `av` asks for Approval on every `mate` launch                  | The terminal has not been granted access to the key              | In the app: `MODEL_API_KEY`, then **Allow Launcher**, then WezTerm                                       |
 | **Install av CLI** refuses to install                          | `/usr/local/bin` is owned by your user                           | `sudo chown root:wheel /usr/local/bin`, then click Install again                                         |
 | `git clone` of firstmate fails with a non-empty directory      | The rebuild ran first and created `~/firstmate/config/`          | `rm -rf ~/firstmate` (it is empty of real content), then clone again                                     |
 | `rebuild.sh` stops right after starting an installer           | Xcode command line tools were missing                            | Wait for the installer, then re-run `./rebuild.sh`                                                       |

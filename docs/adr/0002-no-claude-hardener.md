@@ -28,7 +28,7 @@ Keep the token in Secret Custody and reach the process through `av inject` in th
 alias:
 
 ```sh
-mate   # av inject +ANTHROPIC_AUTH_TOKEN +DEEPSEEK_API_KEY +OPENROUTER_API_KEY -- env ANTHROPIC_BASE_URL=https://openrouter.ai/api FM_BACKEND=herdr claude --dangerously-skip-permissions
+mate   # av inject +ANTHROPIC_AUTH_TOKEN +MODEL_API_KEY +OPENROUTER_API_KEY -- env ANTHROPIC_BASE_URL=https://openrouter.ai/api FM_BACKEND=herdr claude --dangerously-skip-permissions
 ```
 
 Both the key and the routing URL are supplied by the alias, so no tracked settings file

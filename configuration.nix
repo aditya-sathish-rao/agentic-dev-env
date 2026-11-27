@@ -82,7 +82,10 @@ in
       "automic-vault/isotopes"
     ];
     brews = [
-      "herdr"
+      # herdr is NOT here: it is pinned in nix/crew-tools, so the guest can run the
+      # same bytes without Homebrew. An existing Homebrew herdr is left alone by
+      # activation (cleanup is "none"); `brew uninstall herdr` once by hand.
+      #
       # Node comes from nixpkgs (home.nix) so the crew's CLIs and their runtime
       # are pinned together. An entry removed here is NOT uninstalled by
       # activation (see cleanup above): `brew uninstall node` once by hand.

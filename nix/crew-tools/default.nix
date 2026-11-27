@@ -18,5 +18,9 @@ let
   releasePackages = builtins.mapAttrs (
     name: pin: builders.releaseBinary ({ inherit name; } // pin)
   ) pins.release;
+
+  plainPackages = builtins.mapAttrs (
+    name: pin: builders.plainBinary ({ inherit name; } // pin)
+  ) pins.plain;
 in
-npmPackages // releasePackages
+npmPackages // releasePackages // plainPackages

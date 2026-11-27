@@ -220,6 +220,14 @@ if [[ "$mode" == all ]]; then
       echo "check: the host and guest disagree about the model provider; see personal.nix." >&2
       exit 1
     fi
+    # Which machine runs which crew target is a placement decision, and a host file
+    # that silently loses one is the drift this catches. It also proves the guest's
+    # home config still evaluates, which is what the `vm` target runs.
+    if ! nix --extra-experimental-features 'nix-command flakes' build --impure --no-link \
+      ".#checks.aarch64-darwin.crew-targets" >/dev/null; then
+      echo "check: crew.targets does not match the placement in docs/host-split-plan.md." >&2
+      exit 1
+    fi
   else
     echo "check: nix not found; skipping the configuration evaluation." >&2
   fi

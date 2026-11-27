@@ -1,6 +1,6 @@
 # Splitting the repo into two machines
 
-Status: Phase 1 implemented. Phases 2 and 3 are open.
+Status: Phases 1 and 3 implemented. Phase 2 is open.
 
 ## Why
 
@@ -22,8 +22,12 @@ headless Mac mini) — each with its own file.
 ```
 primary.nix          this machine: imports the shared base, holds what is only true here
 mini.nix             the mini: imports the shared base, holds what is only true there
+crew-targets.nix     shared: the crew.targets option, which places the crew stack
+crew-sandbox.nix     shared: the proxy and broker services, gated on crew.targets
+crew-user.nix        the `user` target: the dedicated macOS account and its home
+crew-home.nix        the `user` target: that account's trimmed home configuration
+nix/guest-fleet.nix  the `vm` target: the guest's firstmate clone, herdr and alias
 home-manager.nix     shared: which user gets which home configuration
-crew-sandbox.nix     shared: the proxy and broker services, and their PATH
 configuration.nix    shared: system base (macOS defaults, Homebrew, fonts, Tailscale)
 home.nix             shared: user base (packages, links, shell, launchd)
 home/.agents/skills-primary   skills only the primary Mac gets
@@ -52,6 +56,41 @@ darwinConfigurations = {
 The home-manager wiring moved out of `flake.nix` into `home-manager.nix` so a host
 file can override it (a different username on the mini, say) without editing the
 flake.
+
+## Where the crew runs
+
+The crew is one stack — herdr, the first mate, the crewmates and the worktree pool —
+and it is placed as a unit. `crew.targets` names the places it runs on a machine, and
+every module that belongs to one place gates on it:
+
+```nix
+# crew-targets.nix
+options.crew.targets = lib.mkOption {
+  type = lib.types.listOf (lib.types.enum [ "host" "user" "vm" ]);
+  default = [ "host" ];
+};
+
+# primary.nix:  crew.targets = [ "host" ];
+# mini.nix:     crew.targets = [ "user" "vm" ];
+```
+
+| Target | Where the stack lives      | Boundary                                     | Apple builds  | Model key                                |
+| ------ | -------------------------- | -------------------------------------------- | ------------- | ---------------------------------------- |
+| `host` | the operator's account     | none                                         | yes           | `av inject`                              |
+| `user` | a dedicated `crew` account | macOS user permissions — secrets, not source | yes, unsigned | the host gateway, from a token file      |
+| `vm`   | the Lima guest, as `agent` | the guest kernel, nftables and the proxy     | no            | the host gateway, from the guest's token |
+
+The mini runs `user` and `vm` and not `host`: nobody sits at it, so the operator's
+account is not where the crew runs. The primary runs `host` only.
+
+Both mini targets reach the same host gateway, and each client has its own token, so
+the proxy accepts both. The guest's token is created inside the VM; the `crew`
+account's comes from `/etc/crew-sandbox/model-token`, which activation creates as a
+`0750` directory owned by `root:crew` and never writes the secret itself.
+
+`checks.aarch64-darwin.crew-targets` pins the placement and proves the guest's home
+configuration still evaluates, so a host file that silently loses a target fails in
+CI rather than on the machine it names.
 
 ## What each file owns
 
@@ -117,13 +156,50 @@ behaviour change. Proven by evaluating both configurations. Also fixes the
 **Phase 2 — move primary-only items.** Move the rows above out of the shared base
 into `primary.nix`. Each move is one commit that still evaluates both hosts.
 
-**Phase 3 — headless work on `mini.nix`.** The unresolved part. The crew-sandbox
-proxy and broker are launchd **user agents**: they start with a GUI login, and the
-vault answers an unattended read with "human approval required". On a headless mini
-with FileVault on, nobody logs in after a reboot, so neither service starts. The
-options are in `crew-sandbox/docs/run-crew-on-headless-mac.md`: auto-login with
-FileVault off, or a non-vault secret path such as a root-only encrypted file. That
-is a design decision, not a bug fix.
+**Phase 3 — headless work on `mini.nix` (done).** The crew-sandbox proxy and broker
+are launchd **user agents**: they start with a GUI login, and the vault answers an
+unattended read with "human approval required". On a headless mini with FileVault on,
+nobody logs in after a reboot, so neither service starts.
+
+The decision is **automatic sign-in with FileVault off**. The mini holds no personal
+data, so the trade is acceptable, and it is the only option that needs no change to
+crew-sandbox's secret chain. The alternative — a root-only encrypted secret with a
+non-vault backend — is not built.
+
+`mini.nix` imports `kunchenguid/headless` (pinned to a commit in `flake.nix`) and
+sets `headless.autoLogin = true`, `headless.keyOnlySsh = true` with the operator's
+key, and `headless.tailscale.enable = false` because `tailscale.nix` already declares
+the daemon. The module also turns off sleep, starts the machine after a power cut,
+and disables the `/Applications/Nix Apps` activation step that cannot run over SSH.
+
+`tailscale.nix` sets `services.tailscale.enable` with `mkDefault`, because the
+headless module also sets it and a plain `true` would conflict.
+
+### Manual steps for the mini
+
+These cannot be done by a rebuild, because each needs a human at the machine or an
+admin password:
+
+1. **Turn FileVault off** (`sudo fdesetup disable`). Automatic sign-in cannot work
+   with it on, and the module warns at activation when it is.
+2. **Store the sign-in password once** with the headless skill's admin step, which
+   writes `/etc/kcpassword`. The module warns at activation when it is missing.
+3. **Install the operator's public key** in `~/.ssh/authorized_keys` for the admin
+   account, or rely on `headless.sshKeys` (already set) and confirm sshd restarted.
+4. **Accept the Xcode licence once** (`sudo xcodebuild -license accept`) and install
+   the command-line tools, if the `user` target is to build for Apple platforms.
+   Builds are unsigned; signing stays on the laptop.
+5. **Create the model token** the `crew` account presents:
+   `sudo sh -c 'umask 077; openssl rand -hex 32 > /etc/crew-sandbox/model-token'`.
+   Activation creates the directory and warns when the file is missing.
+6. **Clone firstmate as `crew`** (`sudo -u crew ./rebuild.sh --mini`), so the
+   account's clone exists before its home config links into it.
+7. **Check the boundary**: `ls -ld ~` on the operator's home. It is `0750`
+   owner:staff, so `crew` — which lands in `staff` — can traverse it and read
+   `~/projects`. The boundary is secrets, not source. A per-user `pf` rule to force
+   the account's egress through the proxy is worth trying but is untested.
+8. **A GUI session is needed** for the `crew` account to run UI and simulator tests.
+   Over SSH there is none.
 
 ## Verification
 
@@ -134,6 +210,13 @@ $ nix eval --impure --raw .#darwinConfigurations.mini.config.system.build.toplev
 
 # the launchd agents still get their arguments and now get a PATH
 $ nix eval --impure --json .#darwinConfigurations.primary.config.launchd.user.agents.crew-sandbox-proxy.serviceConfig
+
+# each host runs the placement the plan records
+$ nix eval --impure --json .#darwinConfigurations.primary.config.crew.targets
+$ nix eval --impure --json .#darwinConfigurations.mini.config.crew.targets
+
+# the guest's toolchain gate can pass: pi, git, gh and herdr all resolve in the store
+$ nix eval --impure --json .#homeConfigurations.\"agent@aarch64-linux\".config.home.packages --apply 'ps: map (p: p.name) ps'
 
 # the repo's own gate, which now evaluates every host
 $ ./.githooks/check --all

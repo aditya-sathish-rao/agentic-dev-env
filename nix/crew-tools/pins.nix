@@ -66,4 +66,20 @@
       };
     };
   };
+
+  # A bare binary per platform, from its own org. Not in nixpkgs, so it is pinned
+  # here rather than taken from Homebrew: the guest has no Homebrew, and the crew
+  # account should not depend on one either.
+  plain = {
+    herdr = {
+      version = "0.9.5";
+      owner = "kunchenguid";
+      hash = {
+        "aarch64-darwin" = "sha256-+3fCIyoFqANUITgsiUOS9BdOTjihjkivPdApAVfDp+I=";
+        "x86_64-darwin" = "sha256-X7CpCOx/Z0Xj4kVziwa/rVbEY5HDkas8CVX76tAfE2k=";
+        "aarch64-linux" = "sha256-F9dTby2lCFlSNoDvJ53/ysjkojX05G/o2mwuxEFBiXw=";
+        "x86_64-linux" = "sha256-FNnovItKngEY13wyJm921GHwm0A0LrI3UpYL2J9Zkp0=";
+      };
+    };
+  };
 }

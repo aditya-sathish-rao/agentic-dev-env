@@ -19,12 +19,27 @@
     pi.url = "github:earendil-works/pi/stable";
 
     crew-sandbox = {
-      url = "github:aditya-sathish-rao/crew-sandbox/v0.1.0";
+      # Pinned to a commit rather than v0.1.0: the tag predates `attach` and
+      # `--model-token-file`, and the `user` target needs the flag while the `vm`
+      # target needs attach. Move this to a tag once one carries both.
+      url = "github:aditya-sathish-rao/crew-sandbox/4137d8755db6e7d8fe2805d00c3af5548d4f16b4";
       inputs = {
         nixpkgs.follows = "nixpkgs";
         home-manager.follows = "home-manager";
         nix-darwin.follows = "nix-darwin";
       };
+    };
+
+    # The headless layer for a Mac with no keyboard, screen or person in front of
+    # it: never sleep, start after a power cut, key-only sshd, and the automatic
+    # sign-in that lets a launchd user agent start without anyone logging in.
+    #
+    # Pinned to a commit rather than a branch: the repository has no tagged
+    # releases, and this module changes system settings with admin rights.
+    headless = {
+      url = "github:kunchenguid/headless/e9168b7977b39c488241fbfb62bbb12268cd2862";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.nix-darwin.follows = "nix-darwin";
     };
 
     # Homebrew tap with the Automic Vault cask (it is not in homebrew-cask).
@@ -44,6 +59,7 @@
       nixpkgs,
       pi,
       crew-sandbox,
+      headless,
       ...
     }:
     let
@@ -74,6 +90,7 @@
               piPackage
               crew-sandbox
               automic-vault-tap
+              headless
               hostName
               personal
               ;
@@ -98,11 +115,21 @@
         modules = [
           crew-sandbox.homeManagerModules.default
           ./nix/guest-pi.nix
+          ./nix/guest-fleet.nix
         ];
         extraSpecialArgs = {
           inherit personal;
+          # The fleet's tools. `check toolchain --expected-tools` asserts each of
+          # these resolves under /nix/store, so a tool that arrives from the
+          # distribution or /usr/local fails the gate rather than passing quietly.
+          #
+          # git and gh are here because a crewmate clones, commits and opens pull
+          # requests; herdr is the pane server the first mate spawns into. herdr is
+          # not in nixpkgs, so it comes from the pinned crew-tools set.
           extraPackages = [
             pi.packages.aarch64-linux.default
+            nixpkgs.legacyPackages.aarch64-linux.git
+            nixpkgs.legacyPackages.aarch64-linux.gh
           ]
           ++ builtins.attrValues (
             import ./nix/crew-tools/default.nix {
@@ -148,9 +175,17 @@
       guestProvider = guestModels.providers.${personal.model.provider} or { };
       proxyArgs = primary.config.services.crew-sandbox._proxyArgs;
       brokerArgs = primary.config.services.crew-sandbox._brokerArgs;
+      # The mini runs the crew as a dedicated account as well as in the guest, so its
+      # gateway serves two clients and needs the operator's token file. The primary
+      # runs the crew in the operator's own account and has no second client.
+      miniProxyArgs = mini.config.services.crew-sandbox._proxyArgs;
       hasFlag =
         args: flag: value:
         nixpkgs.lib.hasInfix "--${flag} ${value}" (nixpkgs.lib.concatStringsSep " " args);
+      # The guest's toolchain gate asserts each of these resolves under /nix/store, so
+      # a tool that arrives from the distribution fails rather than passing quietly.
+      guestToolNames = map (p: p.name) guestHome.config.home.packages;
+      hasGuestTool = name: builtins.any (n: nixpkgs.lib.hasPrefix "${name}-" n) guestToolNames;
       modelWiringCorrect =
         (guestProvider.api or null) == "openai-completions"
         && (guestProvider.baseUrl or null) == "http://host.lima.internal:3130/model"
@@ -160,7 +195,70 @@
         && (guestSettings.defaultThinkingLevel or null) == personal.model.thinkingLevel
         && hasFlag proxyArgs "model-upstream" personal.model.upstream
         && hasFlag proxyArgs "model-key-env" personal.model.keySecret
-        && hasFlag brokerArgs "app-id" personal.githubApp.id;
+        && hasFlag brokerArgs "app-id" personal.githubApp.id
+        # The `user` target's token file, on the host that has that target.
+        && hasFlag miniProxyArgs "model-token-file" "/etc/crew-sandbox/model-token"
+        && !(hasFlag proxyArgs "model-token-file" "/etc/crew-sandbox/model-token")
+        # `check toolchain --expected-tools "pi git gh herdr"` must be able to pass.
+        && hasGuestTool "pi"
+        && hasGuestTool "git"
+        && hasGuestTool "gh"
+        && hasGuestTool "herdr";
+      # Every target is evaluated, not just the ones this machine runs. A host file
+      # that names a target whose modules no longer evaluate should fail here rather
+      # than on the machine it names.
+      #
+      # The placement itself is asserted, not derived: the account and the token file
+      # both follow `crew.targets`, so comparing them to it would prove nothing. What
+      # is worth pinning is which machine runs what, because that is the decision
+      # docs/host-split-plan.md records and a host file silently losing a target is
+      # exactly the drift this catches.
+      hosts = {
+        inherit primary mini;
+      };
+      targetsOf = host: hosts.${host}.config.crew.targets;
+      expectedTargets = {
+        # The laptop: the crew runs in the operator's own account.
+        primary = [ "host" ];
+        # The mini: nobody sits at it, so the crew runs as a dedicated account and in
+        # the Lima guest, and not in the operator's account.
+        mini = [
+          "user"
+          "vm"
+        ];
+      };
+      allTargets = nixpkgs.lib.unique (nixpkgs.lib.concatMap targetsOf (builtins.attrNames hosts));
+      knownTargets = [
+        "host"
+        "user"
+        "vm"
+      ];
+      # The pieces each target must bring with it, checked against the target rather
+      # than against each other.
+      hasCrewUser = host: hosts.${host}.config.users.users ? crew;
+      hasTokenFile =
+        host:
+        hasFlag hosts.${host}.config.services.crew-sandbox._proxyArgs "model-token-file"
+          "/etc/crew-sandbox/model-token";
+      targetsCorrect =
+        # Every named target is one the option knows about.
+        builtins.all (t: builtins.elem t knownTargets) allTargets
+        # Each host runs exactly the placement the plan records.
+        && builtins.all (host: targetsOf host == expectedTargets.${host}) (builtins.attrNames hosts)
+        # The account and its token file follow the `user` target.
+        && builtins.all (
+          host:
+          let
+            runsUser = builtins.elem "user" (targetsOf host);
+          in
+          hasCrewUser host == runsUser && hasTokenFile host == runsUser
+        ) (builtins.attrNames hosts)
+        # The guest's home config is what the `vm` target runs, so it must evaluate
+        # whenever any host claims that target.
+        && (
+          !(builtins.elem "vm" allTargets)
+          || (guestHome.config.home.activationPackage.drvPath or null) != null
+        );
     in
     {
       # Same tools the checks need, so CI does not pick them up from a runner's
@@ -215,6 +313,25 @@
                 echo "crew-sandbox model wiring does not match personal.nix:" >&2
                 echo "  the host gateway and the guest's pi config must name the same provider," >&2
                 echo "  model and upstream. See nix/guest-pi.nix and personal.nix." >&2
+                exit 1
+              ''
+          );
+
+          # The targets are a placement decision, so a target that is on must have
+          # brought its pieces and a target that is off must not have. This is the
+          # check that catches a module gated on the wrong target.
+          crew-targets = systemPkgs.runCommand "agentic-dev-env-crew-targets" { } (
+            if targetsCorrect then
+              ''
+                mkdir -p $out
+              ''
+            else
+              ''
+                echo "crew.targets does not match the modules each host imports:" >&2
+                echo "  primary: ${builtins.toJSON (targetsOf "primary")}" >&2
+                echo "  mini:    ${builtins.toJSON (targetsOf "mini")}" >&2
+                echo "  the 'user' target must add the crew account and its token file," >&2
+                echo "  and the 'vm' target must leave the guest's home config evaluating." >&2
                 exit 1
               ''
           );

@@ -94,7 +94,7 @@ flowchart TB
 ## What you get
 
 - **Packages (nix):** ripgrep, fd, fzf, jq, lazygit, neovim, Hack Nerd Font, the agent harness `pi` (from its own flake input), the Swift linters `swiftlint` and `swift-format` (both run with `--strict`), and the formatters and linters the commit hook runs: nixfmt, shfmt, stylua, prettier, taplo, statix, deadnix, shellcheck, selene.
-- **Apps (Homebrew):** wezterm, Visual Studio Code, herdr, Node, Automic Vault (`av`, which holds every secret this machine needs), and the `automic-vault/isotopes/gh-cli` isotope that `av harden gh` installs.
+- **Apps (Homebrew):** wezterm, Visual Studio Code, Node, Automic Vault (`av`, which holds every secret this machine needs), and the `automic-vault/isotopes/gh-cli` isotope that `av harden gh` installs. herdr is not here: it is pinned in `nix/crew-tools` like the rest of the crew tooling, so the guest can run the same bytes without Homebrew.
 - **Shell:** zsh with autosuggestions and syntax highlighting, the starship prompt, git aliases, the `mate` alias, and `~/.local/bin` on `PATH` (exported from `.zshrc`, because macOS `path_helper` rewrites `PATH` after `.zshenv`).
 - **Configs:** wezterm, neovim, herdr, VS Code (font, terminal font, formatters), pi's agent directory (`~/.pi/agent/settings.json` is generated from `personal.nix` and owns the default model, `AGENTS.md` holds the global instructions), user-level skills under `~/.agents/skills` and `~/.claude/skills`, `~/.config/git/config` (resets Apple's ambient credential helper) and `~/.ssh/config` (Keychain-backed key).
 
@@ -385,7 +385,7 @@ flowchart LR
 | Automated by `./rebuild.sh`                                                                              | Manual, once                         |
 | -------------------------------------------------------------------------------------------------------- | ------------------------------------ |
 | `pi` from the flake input                                                                                | Clone firstmate                      |
-| herdr from Homebrew                                                                                      | Install the companion CLIs           |
+| herdr from the pinned crew-tools set                                                                     | Install the companion CLIs           |
 | Generated model files (`settings.json`, `crew-dispatch.json`, supervision pins) and the `AGENTS.md` link | Store the key and allow the launcher |
 | `~/.local/bin` on `PATH`                                                                                 | Harden `gh`                          |
 | The `mate` alias in `.zshrc`                                                                             | Encrypt the SSH key                  |
@@ -538,6 +538,11 @@ flake.nix             inputs pinned by flake.lock (nixpkgs, nix-darwin, home-man
                       nix-homebrew, automic-vault/isotopes tap, pi); evaluated impurely
 configuration.nix     system: macOS defaults, fonts, homebrew taps/brews/casks
 tailscale.nix         system: the Tailscale daemon
+crew-targets.nix      the crew.targets option: where the crew stack runs on a machine
+crew-sandbox.nix      the proxy and broker services, gated on crew.targets
+crew-user.nix         the `user` target: the dedicated macOS account
+crew-home.nix         the `user` target: that account's trimmed home configuration
+nix/guest-fleet.nix   the `vm` target: the guest's firstmate clone, herdr and alias
 home.nix              user: packages, zsh, starship, link table, rendered VS Code settings
 home/                 the config files (wezterm, nvim, herdr, vscode, .pi, .agents/skills, AGENTS.md)
 docs/adr/             one record per decision that is not obvious from the code

@@ -93,7 +93,46 @@ let
         platforms = systems;
       };
     };
+  # herdr publishes a bare binary per platform, not an archive, and from its own
+  # org rather than kunchenguid's. It is not in nixpkgs, so it is pinned here like
+  # the rest of the crew tooling (ADR-0009).
+  #
+  # The macOS asset is adhoc-signed, and the store copy loses the executable bit
+  # that the download carried, so install sets it explicitly.
+  plainBinary =
+    {
+      name,
+      version,
+      owner,
+      hash,
+      ...
+    }:
+    let
+      system = stdenv.hostPlatform.system;
+      os = if lib.strings.hasSuffix "darwin" system then "macos" else "linux";
+      arch = if lib.strings.hasPrefix "aarch64" system then "aarch64" else "x86_64";
+      asset = "${name}-${os}-${arch}";
+    in
+    stdenv.mkDerivation {
+      pname = name;
+      inherit version;
+      src = fetchurl {
+        url = "https://github.com/${owner}/${name}/releases/download/v${version}/${asset}";
+        hash = hash.${system};
+      };
+      dontUnpack = true;
+      installPhase = ''
+        runHook preInstall
+        mkdir -p $out/bin
+        install -m 0755 $src $out/bin/${name}
+        runHook postInstall
+      '';
+      meta = {
+        mainProgram = name;
+        platforms = systems;
+      };
+    };
 in
 {
-  inherit npmCli releaseBinary;
+  inherit npmCli releaseBinary plainBinary;
 }

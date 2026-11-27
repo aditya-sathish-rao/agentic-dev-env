@@ -396,8 +396,9 @@ What the definition and the two host services guarantee, and what each gate re-p
   `models.json` and `settings.json` from `model.provider`, `model.name` and
   `model.thinkingLevel`. `checks.aarch64-darwin.crew-sandbox-model-wiring` reads the settled
   values from both and fails when they disagree, so the two cannot drift apart again. The
-  upstream must end in `/api/v1`: the gateway appends `/chat/completions` to whatever base
-  it is given, so a base without it asks the provider's root and 404s.
+  upstream must be the provider's OpenAI-compatible base, because the gateway appends
+  `/chat/completions` to whatever base it is given: OpenRouter needs the trailing `/api/v1`,
+  DeepSeek's `https://api.deepseek.com` does not.
 
 - **No agent holds a GitHub credential.** `crew-sandbox broker` mints one App installation
   token per task, for one repository from the

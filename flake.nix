@@ -158,9 +158,6 @@
         && (guestSettings.defaultProvider or null) == personal.model.provider
         && (guestSettings.defaultModel or null) == personal.model.name
         && (guestSettings.defaultThinkingLevel or null) == personal.model.thinkingLevel
-        # The gateway appends /chat/completions to whatever base it is given, so a
-        # base without /api/v1 asks OpenRouter's root and 404s.
-        && nixpkgs.lib.hasSuffix "/api/v1" personal.model.upstream
         && hasFlag proxyArgs "model-upstream" personal.model.upstream
         && hasFlag proxyArgs "model-key-env" personal.model.keySecret
         && hasFlag brokerArgs "app-id" personal.githubApp.id;

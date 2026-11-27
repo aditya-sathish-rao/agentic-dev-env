@@ -18,6 +18,9 @@
 
     # The vault secret holding the model key, and the upstream that the host's
     # model gateway forwards to. Save the key first: av save <keySecret>.
+    # The gateway appends /chat/completions to this base, so it must be the
+    # provider's OpenAI-compatible base: OpenRouter needs the trailing /api/v1,
+    # DeepSeek's https://api.deepseek.com does not.
     keySecret = "MODEL_API_KEY";
     upstream = "https://api.example.com";
 
